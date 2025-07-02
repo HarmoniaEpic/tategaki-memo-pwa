@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4f46e5">
+    <title>オフライン - 縦書きメモ</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #f9fafb;
+            color: #1f2937;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .offline-container {
+            text-align: center;
+            max-width: 600px;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .offline-icon {
+            font-size: 72px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+        
+        h1 {
+            font-size: 28px;
+            margin-bottom: 16px;
+            color: #4f46e5;
+        }
+        
+        p {
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+            color: #6b7280;
+        }
+        
+        .retry-button {
+            display: inline-block;
+            background-color: #4f46e5;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+        
+        .retry-button:hover {
+            background-color: #4338ca;
+        }
+        
+        .status-info {
+            margin-top: 32px;
+            padding: 16px;
+            background-color: #f3f4f6;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f4f6;
+            border-radius: 50%;
+            border-top-color: #4f46e5;
+            animation: spin 1s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-container">
+        <div class="offline-icon">📵</div>
+        <h1>オフラインです</h1>
+        <p>
+            インターネット接続が確認できません。<br>
+            縦書きメモアプリは基本機能をオフラインでもご利用いただけますが、<br>
+            一部の機能が制限される場合があります。
+        </p>
+        <a href="/tategaki-memo-pwa/" class="retry-button" onclick="window.location.reload(); return false;">
+            再度試す
+        </a>
+        <div class="status-info">
+            <strong>利用可能な機能：</strong><br>
+            ✓ テキスト編集<br>
+            ✓ マーカー機能<br>
+            ✓ SVG/PNG保存<br>
+            ✓ 印刷<br>
+            <br>
+            <strong>制限される機能：</strong><br>
+            ✗ Google Fontsの新規読み込み<br>
+            ✗ アプリの更新確認
+        </div>
+    </div>
+    
+    <script>
+        // オンラインに戻ったら自動的にリロード
+        window.addEventListener('online', () => {
+            setTimeout(() => {
+                window.location.href = '/tategaki-memo-pwa/';
+            }, 1000);
+        });
+        
+        // Service Workerの状態を確認
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then((registration) => {
+                console.log('Service Worker is active:', registration.active);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,3082 @@
+<!DOCTYPE html>
+<!--
+縦書きメモアプリ v1.8.0
+教育現場向け縦書きテキストエディタ（マーカー機能付き）
+
+主要機能:
+- 縦書きテキスト編集・リアルタイムプレビュー
+- マーカー（蛍光ペン）機能（5色＋消しゴム）
+- SVG/PNG保存・読込（透過PNG対応）
+- 印刷機能（A4縦・ページ分割対応）
+- 黒板モード（チョーク風表示）
+- レスポンシブ対応（モバイル〜8K）
+- Content Security Policy (CSP) によるセキュリティ強化
+
+技術要件:
+- 対応ブラウザ: Chrome/Edge/Firefox/Safari（最新版）
+- オフライン動作対応
+- 外部ライブラリ不使用（Google Fontsを除く）
+
+バージョン履歴:
+- v1.8.0 (2025-01-08): Content Security Policy (CSP) 実装によるセキュリティ強化
+  - XSS攻撃防御のためのCSPメタタグ追加
+  - CSP違反検知機能の実装
+  - 印刷機能へのCSP適用
+  - 将来的なnonce-based CSPへの移行準備
+- v1.7.0: 印刷機能改良版（初期リリース）
+
+Copyright (c) 2025 GIGAスクール運営支援センター南会津
+MIT License: https://opensource.org/licenses/MIT
+-->
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="縦書きメモアプリ - 教育現場向けの縦書きテキストエディタ。マーカー機能付き。">
+    <meta name="author" content="GIGAスクール運営支援センター南会津">
+    <meta name="license" content="MIT License">
+    <link rel="icon" type="image/png" sizes="512x512" href="/tategaki-memo-pwa/icons/icon-512x512.png">
+    <link rel="icon" type="image/png" sizes="384x384" href="/tategaki-memo-pwa/icons/icon-384x384.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/tategaki-memo-pwa/icons/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="152x152" href="/tategaki-memo-pwa/icons/icon-152x152.png">
+    <link rel="icon" type="image/png" sizes="144x144" href="/tategaki-memo-pwa/icons/icon-144x144.png">
+    <link rel="icon" type="image/png" sizes="128x128" href="/tategaki-memo-pwa/icons/icon-128x128.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="/tategaki-memo-pwa/icons/icon-96x96.png">
+    <link rel="icon" type="image/png" sizes="72x72" href="/tategaki-memo-pwa/icons/icon-72x72.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/tategaki-memo-pwa/icons/icon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/tategaki-memo-pwa/icons/icon-16x16.png">
+  
+    <!-- 
+    === Content Security Policy (CSP) 設定 ===
+    教育現場での安全な利用を確保するためのセキュリティポリシー
+    
+    現在の設定:
+    - default-src 'self': 基本的に自己ホストのリソースのみ許可
+    - script-src 'self' 'unsafe-inline': インラインスクリプトを許可（現在の実装に必要）
+    - style-src: インラインスタイルとGoogle Fontsを許可
+    - font-src: Google Fontsのフォントファイルを許可
+    - img-src: Canvas操作のためdata:とblob:を許可
+    - frame-src 'self': 印刷機能のiframeのみ許可
+    - その他: 不要な機能は明示的に無効化
+    - CSPにService Worker用の設定を追加
+
+    将来的な改善:
+    - 'unsafe-inline'をnonce-based CSPに移行
+    - script要素とstyle要素にnonce属性を追加
+    - サーバーサイドでnonceを生成する仕組みの導入
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline';
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com data:;
+        img-src 'self' data: blob:;
+        connect-src 'self';
+        object-src 'none';
+        media-src 'none';
+        frame-src 'self';
+        frame-ancestors 'none';
+        base-uri 'self';
+        form-action 'none';
+        worker-src 'self';
+        manifest-src 'self';
+        upgrade-insecure-requests;
+    ">
+
+    <!-- CSP違反レポート用（開発環境用）
+    <meta http-equiv="Content-Security-Policy-Report-Only" content="
+        default-src 'self'; 
+        report-uri /csp-violation-report;
+    ">
+    -->
+    
+    <title>縦書きメモ v1.8.0 - SVG保存・読込アプリ（マーカー機能付き）</title>
+
+    <!-- PWA関連のメタタグ -->
+    <link rel="manifest" href="/tategaki-memo-pwa/manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="縦書きメモ">
+    <link rel="apple-touch-icon" href="/tategaki-memo-pwa/icons/icon-192x192.png">
+
+    <style>
+        /* === Google Fonts読み込み === */
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@400;600&family=Klee+One:wght@400;600&display=swap');
+        
+        /* === 動的スケーリング用CSS変数 === */
+        :root {
+            /* 基準スケール値（解像度に応じてJSで更新） */
+            --base-scale: 1;      /* 全体的なスケール */
+            --font-scale: 1;      /* フォント専用スケール */
+            --ui-scale: 1;        /* UI要素専用スケール */
+            --min-touch-target: 44px; /* WCAG AA準拠の最小タッチターゲット */
+            
+            /* カラーパレット */
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            
+            --indigo-400: #818cf8;
+            --indigo-500: #6366f1;
+            --indigo-600: #4f46e5;
+            --indigo-700: #4338ca;
+            
+            --purple-500: #a855f7;
+            --purple-600: #9333ea;
+            --purple-700: #7c3aed;
+            
+            --green-300: #86efac;
+            --green-700: #15803d;
+            --green-800: #166534;
+            
+            --teal-500: #14b8a6;
+            --teal-600: #0d9488;
+            --teal-700: #0f766e;
+            
+            --red-500: #ef4444;
+            --red-600: #dc2626;
+            
+            /* スペーシング */
+            --space-1: 0.25rem;
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+        }
+        
+        /* === リセット・基本設定 === */
+        *, ::before, ::after {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+        
+        /* === レイアウトユーティリティ === */
+        .flex { display: flex; }
+        .inline-flex { display: inline-flex; }
+        .grid { display: grid; }
+        .hidden { display: none; }
+        .block { display: block; }
+        .relative { position: relative; }
+        .absolute { position: absolute; }
+        .overflow-hidden { overflow: hidden; }
+        .overflow-auto { overflow: auto; }
+        
+        .top-2 { top: var(--space-2); }
+        .left-2 { left: var(--space-2); }
+        .right-0 { right: 0; }
+        .z-50 { z-index: 50; }
+        
+        .w-full { width: 100%; }
+        .h-full { height: 100%; }
+        .h-screen { height: 100vh; }
+        .min-h-0 { min-height: 0; }
+        .flex-1 { flex: 1 1 0%; }
+        .flex-shrink-0 { flex-shrink: 0; }
+        
+        .flex-col { flex-direction: column; }
+        .flex-wrap { flex-wrap: wrap; }
+        .justify-between { justify-content: space-between; }
+        .items-center { align-items: center; }
+        .text-center { text-align: center; }
+        
+        .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+        
+        /* === スペーシング === */
+        .p-2 { padding: var(--space-2); }
+        .px-3 { padding-left: var(--space-3); padding-right: var(--space-3); }
+        .px-4 { padding-left: var(--space-4); padding-right: var(--space-4); }
+        .py-1 { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+        .py-2 { padding-top: var(--space-2); padding-bottom: var(--space-2); }
+        .ml-3 { margin-left: var(--space-3); }
+        .mr-4 { margin-right: var(--space-4); }
+        .mt-1 { margin-top: var(--space-1); }
+        
+        /* === 色彩 === */
+        .bg-gray-50 { background-color: var(--gray-50); }
+        .bg-gray-100 { background-color: var(--gray-100); }
+        .bg-gray-200 { background-color: var(--gray-200); }
+        .bg-gray-600 { background-color: var(--gray-600); }
+        .bg-gray-700 { background-color: var(--gray-700); }
+        .bg-gray-800 { background-color: var(--gray-800); }
+        .bg-white { background-color: white; }
+        .bg-indigo-600 { background-color: var(--indigo-600); }
+        .bg-purple-600 { background-color: var(--purple-600); }
+        .bg-teal-600 { background-color: var(--teal-600); }
+        .bg-green-700 { background-color: var(--green-700); }
+        .bg-red-500 { background-color: var(--red-500); }
+        .bg-red-600 { background-color: var(--red-600); }
+        
+        .text-white { color: white; }
+        .text-gray-400 { color: var(--gray-400); }
+        .text-gray-500 { color: var(--gray-500); }
+        .text-gray-600 { color: var(--gray-600); }
+        .text-gray-700 { color: var(--gray-700); }
+        .text-gray-800 { color: var(--gray-800); }
+        .text-gray-900 { color: #111827; }
+        .text-indigo-500 { color: var(--indigo-500); }
+        
+        /* === ボーダー === */
+        .border { border-width: 1px; }
+        .border-t { border-top-width: 1px; }
+        .border-l { border-left-width: 1px; }
+        .border-gray-200 { border-color: var(--gray-200); }
+        .border-gray-300 { border-color: var(--gray-300); }
+        .border-gray-400 { border-color: var(--gray-400); }
+        .border-gray-600 { border-color: var(--gray-600); }
+        .border-teal-500 { border-color: var(--teal-500); }
+        
+        /* === 装飾 === */
+        .rounded { border-radius: 0.25rem; }
+        .rounded-md { border-radius: 0.375rem; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .rounded-l-lg { border-top-left-radius: 0.5rem; border-bottom-left-radius: 0.5rem; }
+        .rounded-r-lg { border-top-right-radius: 0.5rem; border-bottom-right-radius: 0.5rem; }
+        .rounded-full { border-radius: 9999px; }
+        
+        .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+        .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        .shadow-xl { box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+        
+        /* === タイポグラフィ === */
+        .font-bold { font-weight: 700; }
+        .font-medium { font-weight: 500; }
+        .font-semibold { font-weight: 600; }
+        .underline { text-decoration: underline; }
+        .whitespace-nowrap { white-space: nowrap; }
+        
+        /* === インタラクション === */
+        .cursor-pointer { cursor: pointer; }
+        .cursor-help { cursor: help; }
+        .resize-none { resize: none; }
+        
+        /* === アクセシビリティ === */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+        
+        /* === フォーム要素 === */
+        ::placeholder {
+            color: var(--gray-400);
+            opacity: 1;
+        }
+        
+        /* === トランジション === */
+        .transition { transition-property: all; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
+        .transition-all { transition-property: all; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
+        .transition-colors { transition-property: background-color, border-color, color, fill, stroke; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
+        .transition-transform { transition-property: transform; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
+        .duration-150 { transition-duration: 150ms; }
+        
+        /* === hover状態 === */
+        .hover\:bg-gray-100:hover { background-color: var(--gray-100); }
+        .hover\:bg-gray-600:hover { background-color: var(--gray-600); }
+        .hover\:bg-gray-700:hover { background-color: var(--gray-700); }
+        .hover\:bg-indigo-700:hover { background-color: var(--indigo-700); }
+        .hover\:bg-purple-700:hover { background-color: var(--purple-700); }
+        .hover\:bg-teal-700:hover { background-color: var(--teal-700); }
+        .hover\:bg-red-600:hover { background-color: var(--red-600); }
+        .hover\:text-indigo-700:hover { color: var(--indigo-700); }
+        .hover\:scale-105:hover { transform: scale(1.05); }
+        
+        /* === focus状態 === */
+        .focus\:outline-none:focus { outline: 2px solid transparent; outline-offset: 2px; }
+        .focus\:ring-2:focus { box-shadow: 0 0 0 0.125rem var(--indigo-400); }
+        .focus\:ring-offset-2:focus { box-shadow: 0 0 0 0.125rem white, 0 0 0 0.25rem var(--indigo-500); }
+        .focus\:ring-indigo-300:focus { box-shadow: 0 0 0 0.25rem rgba(165, 180, 252, 0.75); }
+        .focus\:ring-indigo-400:focus { box-shadow: 0 0 0 0.125rem var(--indigo-400); }
+        .focus\:ring-indigo-500:focus { box-shadow: 0 0 0 0.125rem white, 0 0 0 0.25rem var(--indigo-500); }
+        .focus\:ring-purple-500:focus { box-shadow: 0 0 0 0.125rem white, 0 0 0 0.25rem var(--purple-500); }
+        .focus\:ring-gray-500:focus { box-shadow: 0 0 0 0.125rem white, 0 0 0 0.25rem var(--gray-500); }
+        .focus\:ring-teal-500:focus { box-shadow: 0 0 0 0.125rem white, 0 0 0 0.25rem var(--teal-500); }
+        .focus\:border-indigo-400:focus { border-color: var(--indigo-400); }
+        
+        /* === トグルスイッチ === */
+        .peer:checked ~ .peer-checked\:after\:translate-x-full::after { transform: translateX(100%); }
+        .peer:checked ~ .peer-checked\:after\:border-white::after { border-color: white; }
+        .peer:checked ~ .peer-checked\:bg-indigo-600 { background-color: var(--indigo-600); }
+        .peer:checked ~ .peer-checked\:bg-green-700 { background-color: var(--green-700); }
+        .peer:focus ~ .peer-focus\:ring-4 { box-shadow: 0 0 0 0.25rem rgba(165, 180, 252, 0.75); }
+        .peer:focus ~ .peer-focus\:ring-indigo-300 { box-shadow: 0 0 0 0.25rem rgba(165, 180, 252, 0.75); }
+        .peer:focus ~ .peer-focus\:ring-green-300 { box-shadow: 0 0 0 0.25rem rgba(134, 239, 172, 0.75); }
+        
+        /* === 擬似要素 === */
+        .after\:content-\[\'\'\]::after { content: ''; }
+        .after\:absolute::after { position: absolute; }
+        .after\:bg-white::after { background-color: white; }
+        .after\:border-gray-300::after { border-color: var(--gray-300); }
+        .after\:border::after { border-width: 1px; }
+        .after\:rounded-full::after { border-radius: 9999px; }
+        .after\:transition-all::after { transition-property: all; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
+        
+        /* === レスポンシブ設計 === */
+        /* タブレット以上 */
+        @media (min-width: 768px) {
+            .md\:grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+            .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .md\:col-span-2 { grid-column: span 2 / span 2; }
+        }
+        
+        /* スマートフォン対応 */
+        @media (max-width: 640px) {
+            .flex-wrap { flex-wrap: wrap; }
+            
+            /* 小画面用の動的テキストサイズ */
+            .dynamic-text-base {
+                font-size: clamp(12px, calc(12px * var(--font-scale)), 60px);
+            }
+            
+            .dynamic-button {
+                padding: clamp(6px, calc(6px * var(--ui-scale)), 24px) clamp(12px, calc(12px * var(--ui-scale)), 48px);
+                font-size: clamp(14px, calc(14px * var(--font-scale)), 56px);
+            }
+            
+            .dynamic-gap-3 {
+                gap: clamp(8px, calc(8px * var(--base-scale)), 32px);
+            }
+            
+            #color-preview {
+                font-size: clamp(16px, calc(16px * var(--font-scale)), 80px);
+            }
+        }
+        
+        /* 4K対応: 実機テストに基づく値 */
+        @media (min-width: 3840px) {
+            :root {
+                --base-scale: 1.5;
+                --font-scale: 2;
+                --ui-scale: 1.5;
+                --min-touch-target: 66px;
+            }
+        }
+
+        /* 8K対応: 将来的な拡張を考慮 */
+        @media (min-width: 7680px) {
+            :root {
+                --base-scale: 2;
+                --font-scale: 2.5;
+                --ui-scale: 2;
+                --min-touch-target: 88px;
+            }
+        }
+        
+        /* === 縦書き専用スタイル === */
+        .vertical-text {
+            writing-mode: vertical-rl;
+            text-orientation: upright;
+            white-space: pre;
+            overflow: auto;
+        }
+        
+        /* === カスタムスクロールバー === */
+        ::-webkit-scrollbar {
+            width: calc(8px * var(--ui-scale));
+            height: calc(8px * var(--ui-scale));
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* === 動的サイズ調整クラス === */
+        .dynamic-text-base {
+            font-size: clamp(14px, calc(14px * var(--font-scale)), 70px);
+        }
+        
+        .dynamic-text-lg {
+            font-size: clamp(18px, calc(18px * var(--font-scale)), 90px);
+        }
+        
+        .dynamic-text-xl {
+            font-size: clamp(20px, calc(20px * var(--font-scale)), 100px);
+        }
+        
+        .dynamic-text-2xl {
+            font-size: clamp(24px, calc(24px * var(--font-scale)), 90px);
+        }
+        
+        .dynamic-p-2 {
+            padding: clamp(8px, calc(8px * var(--base-scale)), 24px);
+        }
+        
+        .dynamic-p-3 {
+            padding: clamp(12px, calc(12px * var(--base-scale)), 32px);
+        }
+        
+        .dynamic-p-4 {
+            padding: clamp(16px, calc(16px * var(--base-scale)), 48px);
+        }
+        
+        .dynamic-p-6 {
+            padding: clamp(24px, calc(24px * var(--base-scale)), 64px);
+        }
+        
+        .dynamic-px-4 {
+            padding-left: clamp(16px, calc(16px * var(--base-scale)), 64px);
+            padding-right: clamp(16px, calc(16px * var(--base-scale)), 64px);
+        }
+        
+        .dynamic-py-0-5 {
+            padding-top: clamp(2px, calc(2px * var(--base-scale)), 8px);
+            padding-bottom: clamp(2px, calc(2px * var(--base-scale)), 8px);
+        }
+        
+        .dynamic-py-1 {
+            padding-top: clamp(4px, calc(4px * var(--base-scale)), 16px);
+            padding-bottom: clamp(4px, calc(4px * var(--base-scale)), 16px);
+        }
+        
+        .dynamic-py-2 {
+            padding-top: clamp(8px, calc(8px * var(--base-scale)), 32px);
+            padding-bottom: clamp(8px, calc(8px * var(--base-scale)), 32px);
+        }
+        
+        .dynamic-gap-1 {
+            gap: clamp(4px, calc(4px * var(--base-scale)), 16px);
+        }
+        
+        .dynamic-gap-3 {
+            gap: clamp(12px, calc(12px * var(--base-scale)), 48px);
+        }
+        
+        .dynamic-gap-6 {
+            gap: clamp(24px, calc(24px * var(--base-scale)), 96px);
+        }
+        
+        /* === タッチ操作最適化 === */
+        .touch-target {
+            min-height: min(var(--min-touch-target), 66px);  /* 最大66pxに制限 */
+            min-width: min(var(--min-touch-target), 66px);   /* 最大66pxに制限 */
+        }
+        
+        /* === フォーム要素の動的サイズ === */
+        .dynamic-select {
+            font-size: clamp(14px, calc(14px * var(--font-scale)), 56px);
+            padding: clamp(4px, calc(4px * var(--ui-scale)), 16px) clamp(8px, calc(8px * var(--ui-scale)), 32px);
+            min-height: var(--min-touch-target);
+        }
+        
+        .dynamic-button {
+            font-size: clamp(16px, calc(16px * var(--font-scale)), 64px);
+            padding: clamp(8px, calc(8px * var(--ui-scale)), 32px) clamp(16px, calc(16px * var(--ui-scale)), 64px);
+            min-height: var(--min-touch-target);
+            border: none;
+            outline: none;
+        }
+        
+        /* === カスタムアウトライン効果 === */
+        .outline-purple {
+            box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.3);
+        }
+        .outline-purple:hover {
+            box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.5), 0 0 15px rgba(147, 51, 234, 0.3);
+        }
+        
+        .outline-indigo {
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+        }
+        .outline-indigo:hover {
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5), 0 0 15px rgba(99, 102, 241, 0.3);
+        }
+        
+        .outline-gray {
+            box-shadow: 0 0 0 2px rgba(107, 114, 128, 0.3);
+        }
+        .outline-gray:hover {
+            box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.5), 0 0 15px rgba(107, 114, 128, 0.3);
+        }
+        
+        .outline-teal {
+            box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.3);
+        }
+        .outline-teal:hover {
+            box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.5), 0 0 15px rgba(20, 184, 166, 0.3);
+        }
+        
+        /* === トグルスイッチ動的サイズ === */
+        .dynamic-toggle {
+            position: relative;
+            width: clamp(44px, calc(44px * var(--ui-scale)), 176px);
+            height: clamp(24px, calc(24px * var(--ui-scale)), 96px);
+        }
+        
+        .dynamic-toggle::after {
+            content: '';
+            position: absolute;
+            width: clamp(20px, calc(20px * var(--ui-scale)), 80px);
+            height: clamp(20px, calc(20px * var(--ui-scale)), 80px);
+            top: clamp(2px, calc(2px * var(--ui-scale)), 8px);
+            left: clamp(2px, calc(2px * var(--ui-scale)), 8px);
+            background: white;
+            border: 1px solid var(--gray-300);
+            border-radius: 9999px;
+            transition: all 0.15s;
+        }
+        
+        input[type="checkbox"]:checked + .dynamic-toggle::after {
+            transform: translateX(calc(clamp(20px, calc(20px * var(--ui-scale)), 80px)));
+        }
+        
+        .dynamic-border {
+            border-width: clamp(1px, calc(1px * var(--ui-scale)), 2px);
+        }
+
+        /* === マーカー機能専用スタイル === */
+        #marker-menu {
+            z-index: 50;
+        }
+        
+        #marker-palette {
+            min-width: clamp(60px, calc(60px * var(--ui-scale)), 240px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .marker-color {
+            display: block;
+            width: 100%;
+            padding: clamp(8px, calc(8px * var(--ui-scale)), 32px);
+            font-size: clamp(20px, calc(20px * var(--font-scale)), 80px);
+            text-align: center;
+            background: white;
+            border: none;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        .marker-color:hover {
+            background-color: #f3f4f6;
+            transform: scale(1.1);
+        }
+        
+        .marker-color.active {
+            background-color: #e5e7eb;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        #marker-eraser {
+            display: block;
+            width: 100%;
+            padding: clamp(8px, calc(8px * var(--ui-scale)), 32px);
+            font-size: clamp(20px, calc(20px * var(--font-scale)), 80px);
+            text-align: center;
+            background: white;
+            border: none;
+            border-top: 1px solid #e5e7eb;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        #marker-eraser:hover {
+            background-color: #f3f4f6;
+            transform: scale(1.1);
+        }
+        
+        #marker-eraser.active {
+            background-color: #fee2e2;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        #marker-clear {
+            display: block;
+            width: 100%;
+            padding: clamp(8px, calc(8px * var(--ui-scale)), 32px);
+            font-size: clamp(14px, calc(14px * var(--font-scale)), 56px);
+            text-align: center;
+            background: var(--red-500);
+            color: white;
+            border: none;
+            border-radius: 0 0 0.375rem 0.375rem;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        #marker-clear:hover {
+            background-color: var(--red-600);
+        }
+        
+        /* マーカー色定義（RGBA値で透過度を設定） */
+        .marker-yellow { background-color: rgba(255, 255, 0, 0.4); }
+        .marker-red    { background-color: rgba(255, 107, 107, 0.4); }
+        .marker-blue   { background-color: rgba(77, 171, 247, 0.4); }
+        .marker-green  { background-color: rgba(81, 207, 102, 0.4); }
+        .marker-purple { background-color: rgba(204, 93, 232, 0.4); }
+        
+        /* マーカーモード時のカーソル変更 */
+        .marker-mode {
+            cursor: text !important;
+        }
+        
+        /* 選択時のハイライト色 */
+        ::selection {
+            background-color: rgba(99, 102, 241, 0.3);
+        }
+        
+        .vertical-text::selection {
+            background-color: rgba(99, 102, 241, 0.3);
+        }
+        
+        /* === ツールチップ === */
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .tooltip-text {
+            visibility: hidden;
+            width: clamp(250px, calc(250px * var(--ui-scale)), 500px);
+            background-color: #333;
+            color: #fff;
+            text-align: left;
+            border-radius: 6px;
+            padding: clamp(8px, calc(8px * var(--ui-scale)), 16px) clamp(12px, calc(12px * var(--ui-scale)), 24px);
+            position: absolute;
+            z-index: 50;
+            bottom: 125%;
+            left: 50%;
+            margin-left: clamp(-125px, calc(-125px * var(--ui-scale)), -250px);
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: clamp(12px, calc(12px * var(--font-scale)), 36px);
+            line-height: 1.5;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+        
+        .tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        /* === 文字色セレクタ === */
+        #text-color-selector {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+        }
+        
+        #text-color-selector option {
+            font-family: 'Noto Sans JP', sans-serif;
+            padding: 2px 5px;
+            color: white;
+            background-color: var(--gray-700);
+        }
+        
+        #color-preview {
+            display: inline-block;
+            line-height: 1;
+            filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.3));
+        }
+        
+        /* 白/黄色の視認性向上 */
+        .color-preview-bordered {
+            filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.5));
+        }
+        
+        .preview-gray-bg {
+            background-color: #e5e7eb !important;
+        }
+        
+        .text-shadow-for-white {
+            text-shadow: 0 0 3px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* 透過PNG推奨の情報アイコン */
+        .transparent-png-info {
+            display: inline-block;
+            margin-left: 8px;
+            font-size: 0.9em;
+            color: white;
+            cursor: help;
+            font-weight: bold;
+        }
+        
+        /* === 黒板モード === */
+        body.blackboard-mode {
+            background-color: #1B4332;
+        }
+        
+        body.blackboard-mode .bg-gray-100 {
+            background-color: #1B4332;
+        }
+        
+        body.blackboard-mode .bg-white {
+            background-color: #0F4C3A;
+        }
+        
+        body.blackboard-mode .text-gray-800 {
+            color: #F0F0F0;
+        }
+        
+        body.blackboard-mode .text-gray-900 {
+            color: #F0F0F0;
+        }
+        
+        body.blackboard-mode .text-gray-700 {
+            color: #E0E0E0;
+        }
+        
+        body.blackboard-mode .text-gray-600 {
+            color: #D0D0D0;
+        }
+        
+        body.blackboard-mode .text-gray-500 {
+            color: #C0C0C0;
+        }
+        
+        body.blackboard-mode .border-gray-300 {
+            border-color: #2D6A4F;
+        }
+        
+        body.blackboard-mode .border-gray-200 {
+            border-color: #2D6A4F;
+        }
+        
+        body.blackboard-mode .bg-gray-50 {
+            background-color: #1B4332;
+            border: 2px solid #2D6A4F;
+        }
+        
+        body.blackboard-mode .vertical-text {
+            color: #FFFFFF;
+            text-shadow: 1px 1px 3px rgba(255, 255, 255, 0.5), 0 0 8px rgba(255, 255, 255, 0.2);
+        }
+        
+        body.blackboard-mode textarea {
+            background-color: #1B4332;
+            color: #FFFFFF;
+            text-shadow: 1px 1px 3px rgba(255, 255, 255, 0.5), 0 0 8px rgba(255, 255, 255, 0.2);
+        }
+        
+        body.blackboard-mode textarea::placeholder {
+            color: #A0C4B0;
+            opacity: 0.7;
+        }
+        
+        body.blackboard-mode .shadow-xl {
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+        
+        body.blackboard-mode footer {
+            background-color: #0F4C3A;
+            border-top: 1px solid #2D6A4F;
+        }
+        
+        body.blackboard-mode .bg-gray-800 {
+            background-color: #081C15;
+        }
+        
+        body.blackboard-mode .bg-gray-50.border-t {
+            background-color: #0F4C3A;
+            border-top-color: #2D6A4F;
+        }
+        
+        body.blackboard-mode .preview-gray-bg {
+            background-color: #2D6A4F !important;
+        }
+        
+        body.blackboard-mode ::-webkit-scrollbar-track {
+            background: #2D6A4F;
+        }
+        
+        body.blackboard-mode ::-webkit-scrollbar-thumb {
+            background: #52B788;
+        }
+        
+        body.blackboard-mode ::-webkit-scrollbar-thumb:hover {
+            background: #74C69D;
+        }
+        
+        body.blackboard-mode .outline-purple,
+        body.blackboard-mode .outline-indigo,
+        body.blackboard-mode .outline-gray,
+        body.blackboard-mode .outline-teal {
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+        }
+        
+        body.blackboard-mode .outline-purple:hover,
+        body.blackboard-mode .outline-indigo:hover,
+        body.blackboard-mode .outline-gray:hover,
+        body.blackboard-mode .outline-teal:hover {
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3), 0 0 15px rgba(255, 255, 255, 0.2);
+        }
+        
+        body.blackboard-mode ::selection {
+            background-color: rgba(134, 239, 172, 0.4);
+        }
+        
+        body.blackboard-mode .vertical-text::selection {
+            background-color: rgba(134, 239, 172, 0.4);
+        }
+        
+        body.blackboard-mode #png-menu,
+        body.blackboard-mode #marker-palette {
+            background-color: #1B4332;
+            border-color: #2D6A4F;
+        }
+
+        body.blackboard-mode #png-menu button {
+            color: #1B4332;
+            background-color: #ffffff;
+        }
+
+        body.blackboard-mode #png-menu button:hover {
+            color: #ffffff;
+            background-color: #2D6A4F;
+        }
+
+        body.blackboard-mode .marker-color {
+            background-color: #1B4332;
+            border-color: #2D6A4F;
+        }
+
+        body.blackboard-mode .marker-color:hover {
+            background-color: #2D6A4F;
+        }
+        
+        body.blackboard-mode .marker-color.active {
+            background-color: #40916C;
+        }
+        
+        /* 黒板モードのチョーク風マーカー */
+        body.blackboard-mode .marker-yellow { 
+            background-color: rgba(255, 255, 150, 0.6);
+            mix-blend-mode: screen;
+        }
+        body.blackboard-mode .marker-red { 
+            background-color: rgba(255, 150, 150, 0.6);
+            mix-blend-mode: screen;
+        }
+        body.blackboard-mode .marker-blue { 
+            background-color: rgba(150, 200, 255, 0.6);
+            mix-blend-mode: screen;
+        }
+        body.blackboard-mode .marker-green { 
+            background-color: rgba(150, 255, 150, 0.6);
+            mix-blend-mode: screen;
+        }
+        body.blackboard-mode .marker-purple { 
+            background-color: rgba(220, 150, 255, 0.6);
+            mix-blend-mode: screen;
+        }
+        
+        body.blackboard-mode #esc-key-hint button {
+            background-color: #1B4332;
+            border-color: #52B788;
+            color: #B7E4C7;
+        }
+        
+        body.blackboard-mode #marker-mode-toggle-button[style*="background-color: rgb(209, 213, 219)"] {
+            background-color: #52B788 !important;
+            color: #081C15 !important;
+            border-color: #74C69D !important;
+        }
+        
+        body.blackboard-mode label span.text-gray-900 {
+            color: #D0F0DE;
+        }
+        
+        body.blackboard-mode .dynamic-toggle.bg-gray-200 {
+            background-color: #2D6A4F;
+        }
+        
+        body.blackboard-mode #marker-clear {
+            background-color: #D62828;
+            color: white;
+        }
+        
+        body.blackboard-mode #marker-clear:hover {
+            background-color: #F94144;
+        }
+        
+        body.blackboard-mode .tooltip-text {
+            background-color: #081C15;
+            border: 1px solid #2D6A4F;
+        }
+        
+        body.blackboard-mode .tooltip-text::after {
+            border-color: #081C15 transparent transparent transparent;
+        }
+        
+        /* === PNGエクスポートボタン === */
+        #export-png-button {
+            border-radius: 0.5rem 0 0 0.5rem;
+            margin-right: 1px;
+        }
+        
+        #png-menu-toggle {
+            border-radius: 0 0.5rem 0.5rem 0;
+            min-width: auto;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+            margin-left: -1px;
+            box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.2), 0 0 0 2px rgba(20, 184, 166, 0.3);
+        }
+        
+        #png-menu-toggle:hover {
+            box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.2), 0 0 0 3px rgba(20, 184, 166, 0.5), 0 0 15px rgba(20, 184, 166, 0.3);
+        }
+        
+        #png-menu {
+            margin-top: 0.25rem;
+            border: 1px solid var(--gray-200);
+            box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1), 0 -2px 4px rgba(0, 0, 0, 0.06);
+        }
+        
+        /* === 全画面ボタン === */
+        #fullscreen-toggle {
+            padding: clamp(8px, calc(8px * var(--ui-scale)), 32px) clamp(12px, calc(12px * var(--ui-scale)), 48px);
+            min-width: var(--min-touch-target);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #fullscreen-icon {
+            display: block;
+        }
+        
+        body.blackboard-mode #fullscreen-toggle {
+            background-color: #2D6A4F;
+        }
+        
+        body.blackboard-mode #fullscreen-toggle:hover {
+            background-color: #40916C;
+        }
+        
+        body.fullscreen-active {
+            background: var(--gray-100);
+        }
+        
+        body.fullscreen-active.blackboard-mode {
+            background: #1B4332;
+        }
+        
+        body.fullscreen-active .dynamic-p-6 {
+            padding: clamp(12px, calc(12px * var(--base-scale)), 48px);
+        }
+        
+        #fullscreen-icon line,
+        #fullscreen-icon polyline {
+            stroke-width: 2;
+            vector-effect: non-scaling-stroke;
+        }
+        
+        body.blackboard-mode .blackboard-mode-bg {
+            background-color: #2D6A4F;
+        }
+        
+        body.blackboard-mode .blackboard-mode-bg:hover {
+            background-color: #40916C;
+        }
+        
+        body.blackboard-mode #fullscreen-toggle.outline-gray {
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+        }
+        
+        body.blackboard-mode #fullscreen-toggle.outline-gray:hover {
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3), 0 0 15px rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <div class="flex-1 w-full bg-white shadow-xl flex flex-col overflow-hidden">
+        <header class="bg-gray-800 text-white dynamic-p-2 flex justify-between items-center flex-wrap flex-shrink-0">
+            <h1 class="dynamic-text-2xl font-bold mr-4">縦書きメモ</h1>
+            <div class="flex items-center flex-wrap dynamic-gap-3">
+                <!-- 文字揃えセレクタ -->
+                <div>
+                    <label for="alignment-selector" class="sr-only">文字揃え</label>
+                    <select id="alignment-selector" class="dynamic-select bg-gray-700 text-white border border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-400 focus:outline-none touch-target">
+                        <option value="left">上揃え</option>
+                        <option value="center">中央揃え</option>
+                        <option value="right">下揃え</option>
+                    </select>
+                </div>
+                <!-- フォントセレクタ -->
+                <div>
+                    <label for="font-selector" class="sr-only">フォントを選択</label>
+                    <select id="font-selector" class="dynamic-select bg-gray-700 text-white border border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-400 focus:outline-none touch-target">
+                        <option value="'Noto Serif JP', 'Yu Mincho', 'Hiragino Mincho ProN', 'MS PMincho', serif" selected>明朝体</option>
+                        <option value="'Noto Sans JP', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', 'MS PGothic', sans-serif">ゴシック体</option>
+                        <option value="'MS Gothic', 'Osaka-Mono', 'Consolas', monospace">等幅フォント</option>
+                        <option value="system-ui, -apple-system, 'Yu Gothic UI', 'Meiryo', sans-serif">システムフォント</option>
+                        <option value="'Klee One', 'UDデジタル教科書体 NK', 'UD デジタル 教科書体 NK', 'UDデジタル教科書体 NK-R', 'UD デジタル 教科書体 NK-R', 'YuKyokasho', 'Yu Kyokasho', 'Hannotate SC', cursive, serif">手書き風</option>
+                    </select>
+                </div>
+                <!-- フォントサイズセレクタ -->
+                <div>
+                    <label for="font-size-selector" class="sr-only">フォントサイズ</label>
+                    <select id="font-size-selector" class="dynamic-select bg-gray-700 text-white border border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-400 focus:outline-none touch-target">
+                        <option value="16">16px</option>
+                        <option value="20">20px</option>
+                        <option value="24" selected>24px</option>
+                        <option value="28">28px</option>
+                        <option value="32">32px</option>
+                        <option value="40">40px</option>
+                        <option value="48">48px</option>
+                        <option value="56">56px</option>
+                        <option value="72">72px</option>
+                        <option value="96">96px</option>
+                        <option value="120">120px</option>
+                        <option value="144">144px</option>
+                        <option value="168">168px</option>
+                        <option value="200">200px</option>
+                    </select>
+                </div>
+                <!-- 文字色セレクタ -->
+                <div class="inline-flex items-center dynamic-gap-1">
+                    <label for="text-color-selector" class="sr-only">文字色を選択</label>
+                    <span id="color-preview" class="dynamic-text-xl" style="color: #000000;">■</span>
+                    <select id="text-color-selector" class="dynamic-select bg-gray-700 text-white border border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-400 focus:outline-none touch-target">
+                        <option value="#FFFFFF" data-color-name="白">白</option>
+                        <option value="#808080" data-color-name="灰色">灰色</option>
+                        <option value="#000000" data-color-name="黒" selected>黒</option>
+                        <option value="#808000" data-color-name="オリーブ">オリーブ</option>
+                        <option value="#A52A2A" data-color-name="茶色">茶色</option>
+                        <option value="#FF0000" data-color-name="赤">赤</option>
+                        <option value="#FFC0CB" data-color-name="ピンク">ピンク</option>
+                        <option value="#FFA500" data-color-name="オレンジ">オレンジ</option>
+                        <option value="#FFFF00" data-color-name="黄色">黄色</option>
+                        <option value="#9ACD32" data-color-name="黄緑">黄緑</option>
+                        <option value="#008000" data-color-name="緑">緑</option>
+                        <option value="#20B2AA" data-color-name="青緑">青緑</option>
+                        <option value="#0000FF" data-color-name="青">青</option>
+                        <option value="#800080" data-color-name="紫">紫</option>
+                        <option value="#C71585" data-color-name="赤紫">赤紫</option>
+                        <option value="#EE82EE" data-color-name="すみれ色">すみれ色</option>
+                    </select>
+                    <span id="transparent-png-info" class="transparent-png-info hidden" title="白/黄色の文字は透過PNGでの保存を推奨します">ⓘ</span>
+                </div>
+                <!-- 折り返しボタン -->
+                <div>
+                     <label for="wrap-toggle" class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="wrap-toggle" class="sr-only peer">
+                        <div class="dynamic-toggle bg-gray-600 rounded-full peer peer-focus:ring-4 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:bg-white after:border-gray-300 after:border after:rounded-full after:transition-all peer-checked:bg-indigo-600"></div>
+                        <span class="ml-3 dynamic-text-base font-medium text-white">折り返し表示</span>
+                    </label>
+                </div>
+                <!-- 黒板モードボタン -->
+                <div>
+                     <label for="blackboard-toggle" class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="blackboard-toggle" class="sr-only peer">
+                        <div class="dynamic-toggle bg-gray-600 rounded-full peer peer-focus:ring-4 peer-focus:ring-green-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:bg-white after:border-gray-300 after:border after:rounded-full after:transition-all peer-checked:bg-green-700"></div>
+                        <span class="ml-3 dynamic-text-base font-medium text-white">黒板モード</span>
+                    </label>
+                </div>
+                <!-- 全画面ボタン -->
+                <div>
+                    <button id="fullscreen-toggle" class="dynamic-button bg-gray-700 text-white rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-transform transform hover:scale-105 touch-target outline-gray" title="全画面表示">
+                        <svg id="fullscreen-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: clamp(20px, calc(20px * var(--ui-scale)), 80px); height: clamp(20px, calc(20px * var(--ui-scale)), 80px);">
+                            <g id="expand-icon">
+                                <polyline points="15 3 21 3 21 9"></polyline>
+                                <polyline points="9 21 3 21 3 15"></polyline>
+                                <line x1="21" y1="3" x2="14" y2="10"></line>
+                                <line x1="3" y1="21" x2="10" y2="14"></line>
+                            </g>
+                            <g id="shrink-icon" style="display: none;">
+                                <polyline points="4 14 10 14 10 20"></polyline>
+                                <polyline points="20 10 14 10 14 4"></polyline>
+                                <line x1="14" y1="10" x2="21" y2="3"></line>
+                                <line x1="3" y1="21" x2="10" y2="14"></line>
+                            </g>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main id="main-content" class="grid md:grid-cols-1 dynamic-gap-6 dynamic-p-6 flex-1 overflow-auto">
+            <!-- プレビューエリア (デフォルトで非表示) -->
+            <div id="preview-container" class="flex flex-col hidden h-full overflow-hidden">
+                <div class="relative h-full overflow-hidden">
+                    <!-- マーカーメニュー -->
+                    <div id="marker-menu" class="absolute top-2 left-2 z-50">
+                        <button id="marker-toggle" class="p-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors touch-target blackboard-mode-bg">
+                            ☰
+                        </button>
+                        <div id="marker-palette" class="hidden mt-1 bg-white shadow-lg rounded overflow-hidden">
+                            <button class="marker-color" data-color="#FFFF00" title="黄色">🟡</button>
+                            <button class="marker-color" data-color="#FF6B6B" title="赤色">🔴</button>
+                            <button class="marker-color" data-color="#4DABF7" title="青色">🔵</button>
+                            <button class="marker-color" data-color="#51CF66" title="緑色">🟢</button>
+                            <button class="marker-color" data-color="#CC5DE8" title="紫色">🟣</button>
+                            <button class="marker-color" data-color="transparent" title="消しゴム">🧽</button>
+                            <button id="marker-clear">✕ クリア</button>
+                        </div>
+                    </div>
+                    <div id="preview-area" class="w-full h-full dynamic-p-4 border dynamic-border border-gray-300 rounded-md bg-gray-50 vertical-text overflow-auto">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 入力エリア -->
+            <div id="input-container" class="flex flex-col md:col-span-2 h-full">
+                <textarea id="text-input" class="w-full flex-1 min-h-0 dynamic-p-4 border dynamic-border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 transition duration-150 resize-none vertical-text" placeholder="ここにテキストを
+入力してください。
+
+改行すると、
+SVGでは
+新しい列になります。"></textarea>
+                <input type="file" id="svg-load-input" class="hidden" accept="image/svg+xml">
+            </div>
+        </main>
+
+        <!-- 操作バー -->
+        <div class="bg-gray-50 dynamic-p-2 border-t dynamic-border border-gray-200 flex justify-between items-center dynamic-gap-3 flex-shrink-0 flex-wrap">
+            <div class="flex items-center dynamic-gap-3 flex-wrap flex-1">
+                <!-- 印刷ボタン -->
+                <button id="print-button" class="dynamic-button bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-transform transform hover:scale-105 touch-target outline-purple">
+                    印刷
+                </button>
+                
+                <!-- プレビュートグル -->
+                <label for="toggle-preview" class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="toggle-preview" class="sr-only peer">
+                    <div class="dynamic-toggle bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:bg-white after:border-gray-300 after:border after:rounded-full after:transition-all peer-checked:bg-indigo-600"></div>
+                    <span class="ml-3 dynamic-text-base text-gray-900 font-medium">プレビュー</span>
+                </label>
+                
+                <!-- スクロール同期トグル -->
+                <div id="scroll-sync-toggle-container" class="hidden">
+                     <label for="scroll-sync-toggle" class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="scroll-sync-toggle" class="sr-only peer" checked>
+                        <div class="dynamic-toggle bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:bg-white after:border-gray-300 after:border after:rounded-full after:transition-all peer-checked:bg-indigo-600"></div>
+                        <span class="ml-3 dynamic-text-base font-medium text-gray-900">スクロール同期</span>
+                    </label>
+                </div>
+                
+                <!-- マーカー保存トグル -->
+                <div id="save-markers-toggle-container" class="hidden">
+                     <label for="save-markers-toggle" class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="save-markers-toggle" class="sr-only peer" checked>
+                        <div class="dynamic-toggle bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:bg-white after:border-gray-300 after:border after:rounded-full after:transition-all peer-checked:bg-indigo-600"></div>
+                        <span class="ml-3 dynamic-text-base font-medium text-gray-900">マーカーをSVGに保存</span>
+                    </label>
+                </div>
+                
+                <!-- ESCキー説明 -->
+                <div id="esc-key-hint" class="hidden">
+                    <div class="tooltip">
+                        <button id="marker-mode-toggle-button" class="dynamic-text-base text-gray-600 border border-gray-400 rounded px-4 py-2 shadow-sm inline-block transition-all duration-300 cursor-pointer hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-400" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.1);">ESC／タップ：マーカーモード切替</button>
+                        <div class="tooltip-text">
+                            マーカーモードを解除すると通常のテキスト選択ができます
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 操作ボタン群 -->
+            <div class="flex items-center dynamic-gap-3 flex-wrap">
+                <button id="load-button" class="dynamic-button bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-transform transform hover:scale-105 touch-target outline-gray">
+                    SVGを読み込む
+                </button>
+                <button id="save-button" class="dynamic-button bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-transform transform hover:scale-105 touch-target outline-indigo">
+                    SVGで保存
+                </button>
+                <!-- PNGエクスポートボタン群 -->
+                <div class="relative inline-flex">
+                    <button id="export-png-button" class="dynamic-button bg-teal-600 text-white font-bold hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-transform transform hover:scale-105 touch-target outline-teal">
+                        PNGにエクスポート
+                    </button>
+                    <button id="png-menu-toggle" class="dynamic-button bg-teal-600 text-white font-bold hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-transform transform hover:scale-105 touch-target">
+                        △
+                    </button>
+                    <div id="png-menu" class="absolute right-0 hidden bg-white rounded-md shadow-lg z-50" style="bottom: 100%; margin-bottom: 0.25rem; min-width: 200px;">
+                        <button id="export-transparent-png-button" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md dynamic-text-base whitespace-nowrap">
+                            透過PNGにエクスポート
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="text-center text-gray-500 dynamic-py-0-5 flex-shrink-0">
+        <p class="dynamic-text-base">
+            &copy; 2025 GIGAスクール運営支援センター南会津 | 
+            <span class="text-gray-600">MIT License</span> | 
+            <a href="https://opensource.org/licenses/MIT" class="text-indigo-500 hover:text-indigo-700 underline" target="_blank" rel="noopener noreferrer">ライセンス詳細</a> | 
+            <span class="text-gray-500" style="font-size: 0.875em;">CSSユーティリティクラスの一部は <a href="https://tailwindcss.com" class="text-indigo-500 hover:text-indigo-700 underline" target="_blank" rel="noopener noreferrer">Tailwind CSS</a> を参考にしています</span>
+        </p>
+    </footer>
+
+    <script>
+        /**
+         * === アプリケーション初期化 ===
+         * 縦書きメモアプリ v1.8.0
+         * 
+         * v1.8.0 変更点:
+         * - Content Security Policy (CSP) 実装
+         * - セキュリティポリシー違反の検知機能追加
+         * - 印刷機能へのCSP適用
+         * 
+         * 依存: DOM構築完了
+         * 外部ライブラリ: Google Fonts以外は使用しない
+         * 
+         * 主要な状態管理:
+         * - markerState: マーカー機能の状態
+         * - scrollSyncState: スクロール同期の状態
+         * - APP_INFO: アプリケーション情報
+         */
+        
+        'use strict';
+        
+        // === CSPエラーハンドリング ===
+        // Content Security Policy違反を検知して報告
+        if (typeof SecurityPolicyViolationEvent !== 'undefined') {
+            document.addEventListener('securitypolicyviolation', (e) => {
+                console.warn('CSP違反が検出されました:', {
+                    blockedURI: e.blockedURI,
+                    violatedDirective: e.violatedDirective,
+                    originalPolicy: e.originalPolicy,
+                    disposition: e.disposition
+                });
+                
+                // 教育現場での使用を考慮し、エラーは静かに記録
+                // 本番環境では、サーバーへの報告を実装することを推奨
+                // TODO: 将来的にはCSPレポートエンドポイントへの送信を実装
+            });
+        }
+        
+        // === 動的スケーリングの設定 ===
+        // ウィンドウサイズに応じてUIをスケーリング
+        function updateScaleFactors() {
+            const width = window.innerWidth;
+            let baseScale = 1;
+            let fontScale = 1;
+            let uiScale = 1;
+            
+            // ブレークポイントは実機テストに基づく値
+            if (width >= 7680) { // 8K
+                baseScale = 4;
+                fontScale = 5;
+                uiScale = 4;
+            } else if (width >= 3840) { // 4K
+                baseScale = 2;
+                fontScale = 2.5;
+                uiScale = 2;
+            } else if (width >= 2560) { // WQHD
+                baseScale = 1.5;
+                fontScale = 1.75;
+                uiScale = 1.5;
+            } else if (width >= 1920) { // Full HD
+                baseScale = 1.25;
+                fontScale = 1.5;
+                uiScale = 1.25;
+            }
+            
+            // CSS変数を更新
+            document.documentElement.style.setProperty('--base-scale', baseScale);
+            document.documentElement.style.setProperty('--font-scale', fontScale);
+            document.documentElement.style.setProperty('--ui-scale', uiScale);
+            document.documentElement.style.setProperty('--min-touch-target', `${44 * uiScale}px`);
+        }
+        
+        // 初期化とリサイズ対応
+        updateScaleFactors();
+        window.addEventListener('resize', updateScaleFactors);
+        
+        // アプリケーション情報をコンソールに出力
+        console.log('縦書きメモアプリ v1.8.0');
+        console.log('Copyright (c) 2025 GIGAスクール運営支援センター南会津');
+        console.log('Licensed under the MIT License');
+        console.log('オフライン対応版 - ネットワーク接続不要で動作します');
+        console.log('v1.8.0: Content Security Policy (CSP) によるセキュリティ強化');
+        
+        // === CSP nonce対応の準備 ===
+        // TODO: 将来的なセキュリティ強化のため、以下の実装を検討
+        // 1. サーバーサイドでランダムなnonce値を生成
+        // 2. CSPヘッダーとscript/styleタグに同じnonce値を設定
+        // 3. 動的に生成される要素にもnonce属性を追加
+        // 
+        // 例:
+        // const nonce = document.querySelector('meta[name="csp-nonce"]')?.content;
+        // if (nonce) {
+        //     dynamicScript.setAttribute('nonce', nonce);
+        // }
+        
+        // === Service Worker準備（将来的なPWA実装用） ===
+        // TODO: PWA化する場合は以下を実装
+        // const CACHE_NAME = 'tategaki-memo-v1.8.0';
+        // Service Workerの登録とキャッシュ戦略の実装
+        // オフライン対応の強化
+      
+        // Service Worker更新
+        function updateServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistration().then((registration) => {
+                    if (registration && registration.waiting) {
+                        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                        window.location.reload();
+                    }
+                });
+            }
+        }
+      
+        // === メインアプリケーション ===
+        document.addEventListener('DOMContentLoaded', () => {
+            // アプリケーション情報
+            const APP_INFO = {
+                name: '縦書きメモアプリ',
+                version: '1.8.0',
+                author: 'GIGAスクール運営支援センター南会津',
+                license: 'MIT',
+                changelog: {
+                    'v1.8.0': 'Content Security Policy (CSP) 実装によるセキュリティ強化',
+                    'v1.7.0': '印刷機能改良版（初期リリース）'
+                }
+            };
+            
+            // === DOM要素の取得 ===
+            const textInput = document.getElementById('text-input');
+            const previewArea = document.getElementById('preview-area');
+            const saveButton = document.getElementById('save-button');
+            const loadButton = document.getElementById('load-button');
+            const svgLoadInput = document.getElementById('svg-load-input');
+            const togglePreview = document.getElementById('toggle-preview');
+            const previewContainer = document.getElementById('preview-container');
+            const mainContent = document.getElementById('main-content');
+            const inputContainer = document.getElementById('input-container');
+            const exportPngButton = document.getElementById('export-png-button');
+            const pngMenuToggle = document.getElementById('png-menu-toggle');
+            const pngMenu = document.getElementById('png-menu');
+            const exportTransparentPngButton = document.getElementById('export-transparent-png-button');
+            const printButton = document.getElementById('print-button');
+            const alignmentSelector = document.getElementById('alignment-selector');
+            const fontSelector = document.getElementById('font-selector');
+            const fontSizeSelector = document.getElementById('font-size-selector');
+            const textColorSelector = document.getElementById('text-color-selector');
+            const colorPreview = document.getElementById('color-preview');
+            const transparentPngInfo = document.getElementById('transparent-png-info');
+            const wrapToggle = document.getElementById('wrap-toggle');
+            const blackboardToggle = document.getElementById('blackboard-toggle');
+            const fullscreenToggle = document.getElementById('fullscreen-toggle');
+            const scrollSyncToggle = document.getElementById('scroll-sync-toggle');
+            const scrollSyncToggleContainer = document.getElementById('scroll-sync-toggle-container');
+            const saveMarkersToggle = document.getElementById('save-markers-toggle');
+            const saveMarkersToggleContainer = document.getElementById('save-markers-toggle-container');
+            const escKeyHint = document.getElementById('esc-key-hint');
+            const markerModeToggleButton = document.getElementById('marker-mode-toggle-button');
+
+            // マーカー機能のDOM要素
+            const markerToggle = document.getElementById('marker-toggle');
+            const markerPalette = document.getElementById('marker-palette');
+            const markerColors = document.querySelectorAll('.marker-color');
+            const markerClear = document.getElementById('marker-clear');
+
+            // === 状態管理オブジェクト ===
+            
+            /**
+             * マーカー機能の状態管理
+             * 拡張ポイント: 新しいプロパティ追加時は初期化も忘れずに
+             */
+            const markerState = {
+                isActive: false,        // マーカーモードの有効/無効
+                currentColor: null,     // 現在選択中の色（null=未選択）
+                markers: [],            // マーカー情報配列 [{id, start, end, color, text}]
+                isDragging: false,      // ドラッグ中フラグ（将来的な拡張用）
+                markerId: 0,            // 一意なマーカーID生成用カウンタ
+                lastUsedColor: '#FFFF00', // 最後に使用した色（UX向上用）
+                hasEverSelected: false    // 色選択履歴（初期色決定用）
+            };
+
+            /**
+             * スクロール同期の状態管理
+             * 縦書きなので横スクロールのみを同期
+             */
+            const scrollSyncState = {
+                isEnabled: true,          // 同期機能の有効/無効
+                isSyncing: false,         // 同期処理中フラグ（無限ループ防止）
+                syncAnimationId: null,    // requestAnimationFrameのID
+                temporaryDisabled: false  // マーカー操作時の一時無効化
+            };
+
+        // === スタイル適用関数 ===
+        
+        /**
+         * 文字色見本の表示を更新
+         */
+        function updateColorPreview() {
+            const selectedOption = textColorSelector.options[textColorSelector.selectedIndex];
+            const color = selectedOption.value;
+            
+            colorPreview.style.color = color;
+            
+            // 白または黄色の場合は視認性のため影を強調
+            if (color === '#FFFFFF' || color === '#FFFF00') {
+                colorPreview.classList.add('color-preview-bordered');
+            } else {
+                colorPreview.classList.remove('color-preview-bordered');
+            }
+        }
+
+        // === 初期テキストの設定 ===
+        const initialText = `男もすなる日記といふものを、
+女もしてみむとてするなり。
+それの年の、しはすの二十日あまり
+ひとひの日の、戌の刻に門出す。
+そのよし、いさゝかものに書きつく。`;
+        textInput.value = initialText;
+        updatePreviewWithMarkers();
+
+        // === スタイル適用関数群 ===
+        function applyAlignment(alignment) {
+            textInput.style.textAlign = alignment;
+            previewArea.style.textAlign = alignment;
+        }
+
+        function applyFontFamily(fontFamily) {
+            textInput.style.fontFamily = fontFamily;
+            previewArea.style.fontFamily = fontFamily;
+        }
+
+        function applyFontSize(size) {
+            // 高解像度環境でのフォントサイズ自動調整
+            const scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-scale'));
+            const adjustedSize = Math.round(parseInt(size) * Math.min(scale, 2));
+            const fontSize = adjustedSize + 'px';
+            textInput.style.fontSize = fontSize;
+            previewArea.style.fontSize = fontSize;
+        }
+
+        function applyTextColor(color) {
+            textInput.style.color = color;
+            
+            // 白または黄色の場合の特別処理
+            if (color === '#FFFFFF' || color === '#FFFF00') {
+                transparentPngInfo.classList.remove('hidden');
+                
+                if (togglePreview.checked) {
+                    previewArea.classList.add('preview-gray-bg');
+                }
+                
+                textInput.classList.add('text-shadow-for-white');
+            } else {
+                transparentPngInfo.classList.add('hidden');
+                previewArea.classList.remove('preview-gray-bg');
+                textInput.classList.remove('text-shadow-for-white');
+            }
+            
+            updatePreviewWithMarkers();
+        }
+
+        function applyTextWrap(isWrapped) {
+            const whiteSpaceValue = isWrapped ? 'normal' : 'pre';
+            textInput.style.whiteSpace = whiteSpaceValue;
+            previewArea.style.whiteSpace = whiteSpaceValue;
+        }
+
+        /**
+         * 画面サイズに応じたフォントサイズの自動調整
+         * 大画面では見やすさのため自動的に大きめのサイズを設定
+         */
+        function adjustFontSizeForScreen() {
+            const screenWidth = window.innerWidth;
+            if (screenWidth >= 3840 && fontSizeSelector.value === '24') {
+                fontSizeSelector.value = '56';
+            } else if (screenWidth >= 1920 && fontSizeSelector.value === '24') {
+                fontSizeSelector.value = '32';
+            }
+        }
+
+        // === マーカー機能の実装 ===
+        
+        /**
+         * マーカー色から薄い背景色を生成
+         * @param {string} color - マーカーの色コード
+         * @returns {string} 薄い背景色（RGBA形式）
+         */
+        function getLightMarkerColor(color) {
+            const colorMap = {
+                '#FFFF00': 'rgba(255, 255, 0, 0.2)',      // 黄色
+                '#FF6B6B': 'rgba(255, 107, 107, 0.2)',    // 赤色
+                '#4DABF7': 'rgba(77, 171, 247, 0.2)',     // 青色
+                '#51CF66': 'rgba(81, 207, 102, 0.2)',     // 緑色
+                '#CC5DE8': 'rgba(204, 93, 232, 0.2)',     // 紫色
+                'transparent': 'transparent'                // 消しゴム
+            };
+            return colorMap[color] || 'rgba(128, 128, 128, 0.2)';
+        }
+
+        /**
+         * ESCキーヒントのスタイルを更新
+         * マーカーモードの状態に応じて視覚的フィードバックを提供
+         */
+        function updateEscKeyHintStyle() {
+            const escHintButton = document.getElementById('marker-mode-toggle-button');
+            if (markerState.isActive && markerState.currentColor) {
+                if (markerState.currentColor === 'transparent') {
+                    // 消しゴムモード時
+                    escHintButton.style.color = '#FFFFFF';
+                    escHintButton.style.borderColor = '#9CA3AF';
+                    escHintButton.style.backgroundColor = '#D1D5DB';
+                    escHintButton.style.fontWeight = '600';
+                    escHintButton.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.3)';
+                } else {
+                    // 通常のマーカーモード時
+                    const lightColor = getLightMarkerColor(markerState.currentColor);
+                    escHintButton.style.color = '#000000';
+                    escHintButton.style.borderColor = markerState.currentColor;
+                    escHintButton.style.backgroundColor = lightColor;
+                    escHintButton.style.fontWeight = '600';
+                    escHintButton.style.textShadow = '1px 1px 2px rgba(0,0,0,0.1)';
+                }
+            } else {
+                // マーカーモードOFF時
+                escHintButton.classList.add('text-gray-600', 'border-gray-400');
+                escHintButton.style.color = '';
+                escHintButton.style.borderColor = '';
+                escHintButton.style.backgroundColor = 'transparent';
+                escHintButton.style.fontWeight = '';
+                escHintButton.style.textShadow = '1px 1px 2px rgba(0,0,0,0.1)';
+            }
+        }
+
+        /**
+         * 特定の色でマーカーモードを有効化
+         * @param {string} color - 有効化する色
+         */
+        function activateMarkerColor(color) {
+            markerColors.forEach(btn => btn.classList.remove('active'));
+            
+            markerColors.forEach(button => {
+                if (button.dataset.color === color) {
+                    button.classList.add('active');
+                }
+            });
+            
+            markerState.isActive = true;
+            markerState.currentColor = color;
+            markerState.lastUsedColor = color;
+            markerState.hasEverSelected = true;
+            
+            previewArea.classList.add('marker-mode');
+            
+            // マーカーモード中はスクロール同期を一時的に無効化
+            scrollSyncState.temporaryDisabled = true;
+            
+            updateEscKeyHintStyle();
+            updatePreviewWithMarkers();
+        }
+
+        /**
+         * マーカーモードのON/OFF切り替え
+         * ESCキーまたはボタンクリックで呼ばれる
+         */
+        function toggleMarkerMode() {
+            if (!togglePreview.checked) return;
+            
+            if (markerState.isActive) {
+                // OFF
+                markerState.isActive = false;
+                markerState.currentColor = null;
+                markerColors.forEach(btn => btn.classList.remove('active'));
+                previewArea.classList.remove('marker-mode');
+                scrollSyncState.temporaryDisabled = false;
+                updateEscKeyHintStyle();
+            } else {
+                // ON
+                const colorToUse = markerState.hasEverSelected ? markerState.lastUsedColor : '#FFFF00';
+                activateMarkerColor(colorToUse);
+                markerPalette.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * テキストにマーカーを適用して表示
+         * IMPORTANT: マーカーがない場合も文字色は適用する
+         */
+        function updatePreviewWithMarkers() {
+            const text = textInput.value;
+            const textColor = textColorSelector.value;
+            
+            if (!text) {
+                previewArea.innerHTML = '<span class="text-gray-400">テキストがありません</span>';
+                return;
+            }
+            
+            // 基本の文字色スタイル
+            const baseStyle = `color: ${textColor};`;
+            const needsShadow = (textColor === '#FFFFFF' || textColor === '#FFFF00');
+            const shadowStyle = needsShadow ? ' text-shadow: 0 0 3px rgba(0, 0, 0, 0.3);' : '';
+            
+            if (markerState.markers.length === 0) {
+                previewArea.innerHTML = `<span style="${baseStyle}${shadowStyle}">${escapeHtml(text)}</span>`;
+                return;
+            }
+            
+            // マーカーを位置順にソート
+            const sortedMarkers = [...markerState.markers].sort((a, b) => a.start - b.start);
+            
+            let html = '';
+            let lastEnd = 0;
+            
+            sortedMarkers.forEach(marker => {
+                // マーカー前のテキスト
+                if (marker.start > lastEnd) {
+                    html += `<span style="${baseStyle}${shadowStyle}">${escapeHtml(text.substring(lastEnd, marker.start))}</span>`;
+                }
+                
+                // マーカー部分
+                if (marker.color === 'transparent') {
+                    html += `<span style="${baseStyle}${shadowStyle}">${escapeHtml(text.substring(marker.start, marker.end))}</span>`;
+                } else {
+                    const colorClass = getMarkerClass(marker.color);
+                    html += `<span class="${colorClass}" style="${baseStyle}${shadowStyle}">${escapeHtml(text.substring(marker.start, marker.end))}</span>`;
+                }
+                
+                lastEnd = marker.end;
+            });
+            
+            // 最後の部分
+            if (lastEnd < text.length) {
+                html += `<span style="${baseStyle}${shadowStyle}">${escapeHtml(text.substring(lastEnd))}</span>`;
+            }
+            
+            previewArea.innerHTML = html;
+        }
+        
+        /**
+         * HTMLエスケープ処理
+         * @param {string} text - エスケープするテキスト
+         * @returns {string} エスケープ済みテキスト
+         */
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        /**
+         * 色コードからマーカークラス名を取得
+         * @param {string} color - 色コード
+         * @returns {string} CSSクラス名
+         */
+        function getMarkerClass(color) {
+            const colorMap = {
+                '#FFFF00': 'marker-yellow',
+                '#FF6B6B': 'marker-red',
+                '#4DABF7': 'marker-blue',
+                '#51CF66': 'marker-green',
+                '#CC5DE8': 'marker-purple'
+            };
+            return colorMap[color] || '';
+        }
+        
+        /**
+         * テキスト選択時の処理
+         * 選択範囲にマーカーを適用
+         */
+        function handleTextSelection() {
+            if (!markerState.isActive || !markerState.currentColor) return;
+            
+            const selection = window.getSelection();
+            if (selection.rangeCount === 0) return;
+            
+            const selectedText = selection.toString();
+            if (selectedText.length === 0) return;
+            
+            const plainText = textInput.value || '';
+            
+            // 選択範囲の位置を特定
+            const range = selection.getRangeAt(0);
+            const preSelectionRange = range.cloneRange();
+            preSelectionRange.selectNodeContents(previewArea);
+            preSelectionRange.setEnd(range.startContainer, range.startOffset);
+            
+            const preSelectionText = preSelectionRange.toString();
+            const start = preSelectionText.length;
+            const end = start + selectedText.length;
+            
+            // 範囲チェック
+            if (start < 0 || end > plainText.length) {
+                selection.removeAllRanges();
+                return;
+            }
+            
+            // 新しいマーカーを追加
+            const newMarker = {
+                id: ++markerState.markerId,
+                start: start,
+                end: end,
+                color: markerState.currentColor,
+                text: selectedText
+            };
+            
+            // 重複処理：新しいマーカーが優先
+            markerState.markers = markerState.markers.filter(marker => 
+                !(marker.start < end && marker.end > start)
+            );
+            
+            markerState.markers.push(newMarker);
+            
+            updatePreviewWithMarkers();
+            selection.removeAllRanges();
+            
+            // スクロール同期を再開
+            scrollSyncState.temporaryDisabled = false;
+        }
+        
+        // === マーカーUIイベント ===
+        
+        // マーカーメニューのトグル
+        markerToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            markerPalette.classList.toggle('hidden');
+        });
+        
+        // PNGメニューの表示/非表示
+        pngMenuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pngMenu.classList.toggle('hidden');
+        });
+        
+        // 透過PNGエクスポート
+        exportTransparentPngButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pngMenu.classList.add('hidden');
+            exportToPNG(true);
+        });
+        
+        // ドキュメントクリックでメニューを閉じる
+        document.addEventListener('click', (e) => {
+            if (!markerToggle.contains(e.target) && !markerPalette.contains(e.target)) {
+                markerPalette.classList.add('hidden');
+            }
+            if (!pngMenuToggle.contains(e.target) && !pngMenu.contains(e.target)) {
+                pngMenu.classList.add('hidden');
+            }
+        });
+        
+        // === 全画面機能 ===
+        fullscreenToggle.addEventListener('click', () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement) {
+                // 全画面に入る
+                const elem = document.documentElement;
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen();
+                } else if (elem.webkitRequestFullscreen) {
+                    elem.webkitRequestFullscreen();
+                } else if (elem.mozRequestFullScreen) {
+                    elem.mozRequestFullScreen();
+                }
+            } else {
+                // 全画面から出る
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.mozCancelFullScreen) {
+                    document.mozCancelFullScreen();
+                }
+            }
+        });
+        
+        /**
+         * 全画面状態に応じてアイコンを切り替え
+         */
+        function updateFullscreenIcon() {
+            const expandIcon = document.getElementById('expand-icon');
+            const shrinkIcon = document.getElementById('shrink-icon');
+            
+            if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement) {
+                expandIcon.style.display = 'none';
+                shrinkIcon.style.display = 'block';
+                fullscreenToggle.title = 'ウィンドウ表示に戻る';
+                document.body.classList.add('fullscreen-active');
+            } else {
+                expandIcon.style.display = 'block';
+                shrinkIcon.style.display = 'none';
+                fullscreenToggle.title = '全画面表示';
+                document.body.classList.remove('fullscreen-active');
+            }
+        }
+        
+        // 全画面イベントリスナー
+        document.addEventListener('fullscreenchange', updateFullscreenIcon);
+        document.addEventListener('webkitfullscreenchange', updateFullscreenIcon);
+        document.addEventListener('mozfullscreenchange', updateFullscreenIcon);
+        
+        // 色選択（消しゴム含む）
+        markerColors.forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.stopPropagation();
+                
+                markerColors.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                
+                const color = button.dataset.color;
+                activateMarkerColor(color);
+                
+                markerPalette.classList.add('hidden');
+            });
+        });
+        
+        // マーカークリア
+        markerClear.addEventListener('click', (e) => {
+            e.stopPropagation();
+            
+            if (confirm('すべてのマーカーをクリアしますか？')) {
+                markerState.markers = [];
+                markerState.isActive = false;
+                markerState.currentColor = null;
+                
+                markerColors.forEach(btn => btn.classList.remove('active'));
+                previewArea.classList.remove('marker-mode');
+                scrollSyncState.temporaryDisabled = false;
+                updateEscKeyHintStyle();
+                updatePreviewWithMarkers();
+                markerPalette.classList.add('hidden');
+            }
+        });
+        
+        // プレビューエリアでのマウスアップイベント
+        previewArea.addEventListener('mouseup', handleTextSelection);
+        
+        // タッチデバイス対応
+        previewArea.addEventListener('touchend', handleTextSelection);
+        
+        // キーボードショートカット
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                toggleMarkerMode();
+            }
+            
+            // F11キーで全画面切り替え
+            if (e.key === 'F11') {
+                e.preventDefault();
+                fullscreenToggle.click();
+            }
+        });
+        
+        // ESCキーヒントボタンのクリックイベント
+        markerModeToggleButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleMarkerMode();
+        });
+        
+        // === UIコントロールのイベントリスナー ===
+        alignmentSelector.addEventListener('change', (e) => applyAlignment(e.target.value));
+        fontSelector.addEventListener('change', (e) => applyFontFamily(e.target.value));
+        fontSizeSelector.addEventListener('change', (e) => applyFontSize(e.target.value));
+        textColorSelector.addEventListener('change', (e) => {
+            applyTextColor(e.target.value);
+            updateColorPreview();
+        });
+        wrapToggle.addEventListener('change', (e) => applyTextWrap(e.target.checked));
+        
+        // 黒板モードのトグル
+        blackboardToggle.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                document.body.classList.add('blackboard-mode');
+                // IMPORTANT: 黒板モード時は文字色を自動的に白に変更
+                // ユーザビリティを考慮し、元の色は保存して復元可能にする
+                const currentColor = textColorSelector.value;
+                if (currentColor !== '#FFFFFF') {
+                    document.body.dataset.previousColor = currentColor;
+                    for (let i = 0; i < textColorSelector.options.length; i++) {
+                        if (textColorSelector.options[i].value === '#FFFFFF') {
+                            textColorSelector.selectedIndex = i;
+                            applyTextColor('#FFFFFF');
+                            updateColorPreview();
+                            break;
+                        }
+                    }
+                }
+            } else {
+                document.body.classList.remove('blackboard-mode');
+                // 前の色に戻す
+                const previousColor = document.body.dataset.previousColor;
+                if (previousColor && previousColor !== '#FFFFFF') {
+                    for (let i = 0; i < textColorSelector.options.length; i++) {
+                        if (textColorSelector.options[i].value === previousColor) {
+                            textColorSelector.selectedIndex = i;
+                            applyTextColor(previousColor);
+                            updateColorPreview();
+                            break;
+                        }
+                    }
+                    delete document.body.dataset.previousColor;
+                }
+            }
+        });
+        
+        // === 初期スタイルの適用 ===
+        applyAlignment(alignmentSelector.value);
+        applyFontFamily(fontSelector.value);
+        adjustFontSizeForScreen();
+        applyFontSize(fontSizeSelector.value);
+        applyTextColor(textColorSelector.value);
+        updateColorPreview();
+        applyTextWrap(wrapToggle.checked);
+
+        // === ウィンドウリサイズ時の処理 ===
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                updateScaleFactors();
+                applyFontSize(fontSizeSelector.value);
+            }, 250);
+        });
+
+        // ライブプレビュー機能
+        textInput.addEventListener('input', () => {
+            updatePreviewWithMarkers();
+        });
+
+        // === プレビュー表示切替機能 ===
+        togglePreview.addEventListener('change', () => {
+            if (togglePreview.checked) {
+                previewContainer.classList.remove('hidden');
+                mainContent.classList.remove('md:grid-cols-1');
+                mainContent.classList.add('md:grid-cols-2');
+                inputContainer.classList.remove('md:col-span-2');
+                scrollSyncToggleContainer.classList.remove('hidden');
+                saveMarkersToggleContainer.classList.remove('hidden');
+                escKeyHint.classList.remove('hidden');
+                updateEscKeyHintStyle();
+                // 白/黄色選択時の背景色適用
+                const currentColor = textColorSelector.value;
+                if (currentColor === '#FFFFFF' || currentColor === '#FFFF00') {
+                    previewArea.classList.add('preview-gray-bg');
+                }
+                setupScrollSync();
+                // プレビュー表示時にスクロール位置を同期
+                setTimeout(() => {
+                    syncScroll(textInput, previewArea);
+                }, 100);
+            } else {
+                previewContainer.classList.add('hidden');
+                mainContent.classList.remove('md:grid-cols-2');
+                mainContent.classList.add('md:grid-cols-1');
+                inputContainer.classList.add('md:col-span-2');
+                scrollSyncToggleContainer.classList.add('hidden');
+                saveMarkersToggleContainer.classList.add('hidden');
+                escKeyHint.classList.add('hidden');
+                previewArea.classList.remove('preview-gray-bg');
+                setupScrollSync();
+            }
+        });
+
+        // === SVG生成関数 ===
+        
+        /**
+         * 文字位置をSVG座標系で計算
+         * @param {number} charIndex - 文字のインデックス
+         * @param {string} text - 全体のテキスト
+         * @param {number} fontSize - フォントサイズ
+         * @param {number} charMargin - 文字間隔（現在は0固定）
+         * @param {number} lineSpacing - 行間隔
+         * @param {number} padding - パディング
+         * @param {string} alignment - 文字揃え
+         * @returns {Object|null} 座標情報 {x, y, lineIndex, charInLine}
+         */
+        function getCharPositionInSVG(charIndex, text, fontSize, charMargin, lineSpacing, padding, alignment) {
+            const lines = text.split('\n');
+            let currentIndex = 0;
+            
+            for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+                const line = lines[lineIndex];
+                const lineLength = line.length;
+                
+                if (charIndex < currentIndex + lineLength) {
+                    const charInLine = charIndex - currentIndex;
+                    const x = padding + (lines.length - 1 - lineIndex) * lineSpacing;
+                    
+                    // 文字揃えによるオフセット計算
+                    const longestLineLength = lines.reduce((max, l) => Math.max(max, l.length), 0);
+                    const contentHeight = longestLineLength * fontSize;
+                    const thisLineHeight = lineLength * fontSize;
+                    
+                    let yOffset = 0;
+                    if (alignment === 'center') {
+                        yOffset = (contentHeight - thisLineHeight) / 2;
+                    } else if (alignment === 'right') {
+                        yOffset = contentHeight - thisLineHeight;
+                    }
+                    
+                    const y = padding + yOffset + charInLine * fontSize;
+                    
+                    return { x, y, lineIndex, charInLine };
+                }
+                
+                currentIndex += lineLength;
+                if (lineIndex < lines.length - 1) {
+                    currentIndex++; // 改行文字
+                }
+            }
+            
+            return null;
+        }
+
+        /**
+         * SVG文字列を生成
+         * @returns {Object|null} SVGデータ {svgString, width, height}
+         */
+        function createSvgString() {
+            const text = textInput.value;
+            if (!text) return null;
+
+            const alignment = alignmentSelector.value;
+            const selectedFontFamily = fontSelector.value;
+            const textColor = textColorSelector.value;
+            const isBlackboardMode = document.body.classList.contains('blackboard-mode');
+            const backgroundColor = isBlackboardMode ? '#1B4332' : 'white';
+            const computedStyle = window.getComputedStyle(textInput);
+            const fontSize = parseInt(computedStyle.fontSize);
+            const lines = text.split('\n');
+            
+            const charMargin = 0; // 文字間隔を0に設定（縦書きの標準）
+            const lineSpacing = Math.round(fontSize * 1.25);
+            const padding = Math.round(fontSize * 1.6);
+
+            const longestLineLength = lines.reduce((max, line) => Math.max(max, line.length), 0);
+            const contentHeight = longestLineLength * fontSize;
+            const svgHeight = contentHeight + padding * 2;
+            
+            const svgWidth = lines.length * lineSpacing + padding * 2;
+            
+            // マーカー情報をSVGに含めるかどうか
+            const includeMarkers = saveMarkersToggle.checked && markerState.markers.length > 0;
+            
+            let svgContent = '';
+            
+            // マーカーのレンダリング
+            if (includeMarkers) {
+                svgContent += '<g id="markers">\n';
+                
+                markerState.markers.forEach(marker => {
+                    if (marker.color === 'transparent') return;
+                    
+                    // マーカーの範囲内の各文字に対して矩形を生成
+                    for (let i = marker.start; i < marker.end; i++) {
+                        const pos = getCharPositionInSVG(i, text, fontSize, charMargin, lineSpacing, padding, alignment);
+                        if (pos) {
+                            const rectX = pos.x - fontSize * 0.1;
+                            const rectY = pos.y;
+                            const rectWidth = fontSize * 1.2;
+                            const rectHeight = fontSize;
+                            
+                            svgContent += `  <rect x="${rectX}" y="${rectY}" width="${rectWidth}" height="${rectHeight}" fill="${marker.color}" opacity="0.4" />\n`;
+                        }
+                    }
+                });
+                
+                svgContent += '</g>\n';
+            }
+            
+            // テキストのレンダリング
+            svgContent += '<g id="texts">\n';
+            lines.forEach((line, index) => {
+                const x = svgWidth - padding - (index * lineSpacing);
+                const thisLineHeight = line.length * fontSize;
+                
+                let y = padding;
+                if (alignment === 'center') {
+                    y = padding + (contentHeight - thisLineHeight) / 2;
+                } else if (alignment === 'right') {
+                    y = padding + (contentHeight - thisLineHeight);
+                }
+
+                const sanitizedLine = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+                svgContent += `  <text x="${x}" y="${y}" writing-mode="vertical-rl" text-orientation="upright" dominant-baseline="text-before-edge">${sanitizedLine}</text>\n`;
+            });
+            svgContent += '</g>\n';
+            
+            // メタデータ
+            let metadataContent = '';
+            if (includeMarkers) {
+                metadataContent = `
+    <metadata>
+        <markers>
+            ${markerState.markers.map(m => 
+                `<marker id="${m.id}" start="${m.start}" end="${m.end}" color="${m.color}" />`
+            ).join('\n            ')}
+        </markers>
+    </metadata>`;
+            }
+            
+            metadataContent += `
+    <metadata>
+        <textColor>${textColor}</textColor>
+        <blackboardMode>${isBlackboardMode}</blackboardMode>
+    </metadata>`;
+            
+            const svgString = `<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generated by 縦書きメモアプリ v${APP_INFO.version} -->
+<!-- Generator software: ${APP_INFO.name} (${APP_INFO.license} License) -->
+<!-- Generated at: ${new Date().toISOString()} -->
+<!-- Security: Content Security Policy (CSP) enabled since v1.8.0 -->
+<svg width="${svgWidth}" height="${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="background-color: ${backgroundColor};">${metadataContent}
+    <style>
+        text {
+            font-family: ${selectedFontFamily};
+            font-size: ${fontSize}px;
+            fill: ${textColor};
+        }
+    </style>
+    ${svgContent}
+</svg>`;
+            return { svgString, width: svgWidth, height: svgHeight };
+        }
+
+        /**
+         * ボタンにエラーメッセージを表示
+         * @param {HTMLElement} button - 対象ボタン
+         * @param {string} message - エラーメッセージ
+         */
+        function showButtonError(button, message) {
+            const originalText = button.innerText;
+            button.innerText = message;
+            button.classList.add('bg-red-500', 'hover:bg-red-600');
+            setTimeout(() => {
+                button.innerText = originalText;
+                button.classList.remove('bg-red-500', 'hover:bg-red-600');
+            }, 2000);
+        }
+
+        // === SVG保存機能 ===
+        saveButton.addEventListener('click', () => {
+            const svgData = createSvgString();
+            if (!svgData) {
+                showButtonError(saveButton, 'テキストがありません');
+                return;
+            }
+
+            const blob = new Blob([svgData.svgString], { type: 'image/svg+xml;charset=utf-8' });
+            // Blob URLの作成（CSPで許可されたリソース）
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            // タイムスタンプ付きファイル名生成
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('ja-JP').replace(/\//g, '-');
+            const timeStr = now.toLocaleTimeString('ja-JP', {hour: '2-digit', minute: '2-digit'}).replace(/:/g, '-');
+            a.download = `縦書きメモ_${dateStr}_${timeStr}.svg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        // === PNGエクスポート機能 ===
+        
+        /**
+         * PNGエクスポート処理
+         * @param {boolean} transparent - 透過PNGかどうか
+         */
+        function exportToPNG(transparent = false) {
+            const svgData = createSvgString();
+            if (!svgData) {
+                showButtonError(transparent ? exportTransparentPngButton : exportPngButton, 'テキストがありません');
+                return;
+            }
+
+            const textColor = textColorSelector.value;
+            const isWhiteOrYellow = (textColor === '#FFFFFF' || textColor === '#FFFF00');
+            
+            // 白/黄色選択時の確認ダイアログ
+            if (!transparent && isWhiteOrYellow) {
+                const result = confirm(
+                    '白/黄色の文字は背景が白だと見えにくくなります。\n' +
+                    '透過PNGでエクスポートすることを推奨します。\n\n' +
+                    '透過PNGでエクスポートしますか？'
+                );
+                
+                if (result) {
+                    exportToPNG(true);
+                    return;
+                }
+            }
+
+            let { svgString, width, height } = svgData;
+            
+            // 透過PNGの場合、背景色を削除
+            if (transparent) {
+                svgString = svgString.replace(/style="background-color: [^"]*;"/, 'style="background-color: transparent;"');
+            }
+
+            // 大きな画像の警告
+            if (width > 4096 || height > 4096) {
+                if (!confirm(`生成される画像が大きいです（${width}x${height}px）。続行しますか？`)) {
+                    return;
+                }
+            }
+
+            // Blob URLの作成（CSPのimg-src: blob:により許可）
+            // IMPORTANT: 使用後は必ずrevokeObjectURLでメモリを解放
+            const svgBlob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
+            const url = URL.createObjectURL(svgBlob);
+            
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                
+                if (transparent) {
+                    ctx.clearRect(0, 0, width, height);
+                } else if (document.body.classList.contains('blackboard-mode')) {
+                    ctx.fillStyle = '#1B4332';
+                    ctx.fillRect(0, 0, width, height);
+                }
+                
+                ctx.drawImage(img, 0, 0);
+
+                const pngUrl = canvas.toDataURL('image/png');
+                const a = document.createElement('a');
+                a.href = pngUrl;
+                // タイムスタンプ付きファイル名生成
+                const now = new Date();
+                const dateStr = now.toLocaleDateString('ja-JP').replace(/\//g, '-');
+                const timeStr = now.toLocaleTimeString('ja-JP', {hour: '2-digit', minute: '2-digit'}).replace(/:/g, '-');
+                const transparentSuffix = transparent ? '_透過' : '';
+                a.download = `縦書きメモ${transparentSuffix}_${dateStr}_${timeStr}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                URL.revokeObjectURL(url);
+            };
+            img.onerror = (e) => {
+                console.error("PNGへのエクスポート中に画像の読み込みに失敗しました。", e);
+                showButtonError(transparent ? exportTransparentPngButton : exportPngButton, "エクスポート失敗");
+                URL.revokeObjectURL(url);
+            };
+            img.src = url;
+        }
+
+        exportPngButton.addEventListener('click', () => {
+            exportToPNG(false);
+        });
+
+        // === 印刷機能実装 ===
+        
+        // 印刷関連の定数（A4用紙基準）
+        const PRINT_CONSTANTS = {
+            PX_TO_MM: 0.2645833,         // 1px = 0.265mm (96DPI)
+            COLUMN_SPACING_RATIO: -0.25,  // 列間隔を文字サイズの-25%に設定
+            PAGE_WIDTH_MM: 180,           // A4縦の印刷可能幅（余白考慮）
+            PAGE_HEIGHT_MM: 267,          // A4縦の印刷可能高さ（余白考慮）
+            MAX_PAGES: 50                 // メモリ制限を考慮した最大ページ数
+        };
+        
+        /**
+         * 文字情報にマーカーを適用
+         * @param {string} char - 文字
+         * @param {number} index - 文字位置
+         * @param {Array} markers - マーカー配列
+         * @returns {Object} 文字情報 {char, index, markerColor}
+         */
+        function applyMarkersToChar(char, index, markers) {
+            let markerColor = null;
+            
+            // 最新のマーカーを優先
+            for (let i = markers.length - 1; i >= 0; i--) {
+                const marker = markers[i];
+                if (index >= marker.start && index < marker.end) {
+                    markerColor = marker.color === 'transparent' ? null : marker.color;
+                    break;
+                }
+            }
+            
+            return { char, index, markerColor };
+        }
+        
+        /**
+         * テキストを文字情報配列に変換
+         * @param {string} text - テキスト
+         * @param {Array} markers - マーカー配列
+         * @returns {Array} 文字情報配列
+         */
+        function parseTextWithMarkers(text, markers) {
+            const charArray = [];
+            
+            for (let i = 0; i < text.length; i++) {
+                const charInfo = applyMarkersToChar(text[i], i, markers);
+                charArray.push(charInfo);
+            }
+            
+            return charArray;
+        }
+
+        /**
+         * 文字情報配列をページに分割
+         * @param {Array} charArray - 文字情報配列
+         * @param {number} fontSize - フォントサイズ
+         * @returns {Array} ページ配列
+         */
+        function splitIntoPages(charArray, fontSize) {
+            const pages = [];
+            const fontSizeMM = fontSize * PRINT_CONSTANTS.PX_TO_MM;
+            
+            // 1列あたりの最大文字数と1ページあたりの最大列数を計算
+            const charsPerColumn = Math.floor(PRINT_CONSTANTS.PAGE_HEIGHT_MM / fontSizeMM);
+            const columnWidthMM = fontSizeMM * (1 + PRINT_CONSTANTS.COLUMN_SPACING_RATIO);
+            const columnsPerPage = Math.floor(PRINT_CONSTANTS.PAGE_WIDTH_MM / columnWidthMM);
+            
+            let currentPage = [];
+            let currentColumn = [];
+            let columnCount = 0;
+            
+            charArray.forEach((charInfo, index) => {
+                // 改行処理
+                if (charInfo.char === '\n') {
+                    if (currentColumn.length > 0) {
+                        currentPage.push([...currentColumn]);
+                        currentColumn = [];
+                        columnCount++;
+                        
+                        if (columnCount >= columnsPerPage) {
+                            pages.push([...currentPage]);
+                            currentPage = [];
+                            columnCount = 0;
+                        }
+                    }
+                    
+                    currentColumn.push(charInfo);
+                    currentPage.push([...currentColumn]);
+                    currentColumn = [];
+                    columnCount++;
+                    
+                    if (columnCount >= columnsPerPage) {
+                        pages.push([...currentPage]);
+                        currentPage = [];
+                        columnCount = 0;
+                    }
+                } else {
+                    currentColumn.push(charInfo);
+                    
+                    if (currentColumn.length >= charsPerColumn) {
+                        currentPage.push([...currentColumn]);
+                        currentColumn = [];
+                        columnCount++;
+                        
+                        if (columnCount >= columnsPerPage) {
+                            pages.push([...currentPage]);
+                            currentPage = [];
+                            columnCount = 0;
+                        }
+                    }
+                }
+            });
+            
+            // 残りの文字を処理
+            if (currentColumn.length > 0) {
+                if (columnCount >= columnsPerPage) {
+                    if (currentPage.length > 0) {
+                        pages.push([...currentPage]);
+                    }
+                    pages.push([currentColumn]);
+                } else {
+                    currentPage.push(currentColumn);
+                }
+            }
+            
+            if (currentPage.length > 0 && (currentColumn.length === 0 || columnCount < columnsPerPage)) {
+                pages.push(currentPage);
+            }
+            
+            return pages;
+        }
+
+        /**
+         * ページごとのHTMLを生成
+         * @param {Array} pageColumns - ページの列配列
+         * @param {Object} settings - 印刷設定
+         * @returns {string} HTML文字列
+         */
+        function generatePageHTML(pageColumns, settings) {
+            let html = '<div class="print-page">';
+            
+            pageColumns.forEach((column, columnIndex) => {
+                const hasVisibleContent = column.some(charInfo => charInfo.char !== '\n');
+                if (!hasVisibleContent) return;
+                
+                html += '<div class="print-column">';
+                
+                column.forEach(charInfo => {
+                    if (charInfo.char === '\n') return;
+                    
+                    const escapedChar = escapeHtml(charInfo.char);
+                    if (charInfo.markerColor) {
+                        html += `<span class="char" style="background-color: ${charInfo.markerColor};">${escapedChar}</span>`;
+                    } else {
+                        html += `<span class="char">${escapedChar}</span>`;
+                    }
+                });
+                
+                html += '</div>';
+            });
+            
+            html += '</div>';
+            return html;
+        }
+        
+        /**
+         * 印刷用HTMLドキュメントを生成
+         * @param {Array} pages - ページ配列
+         * @param {Object} settings - 印刷設定
+         * @returns {string} 完全なHTML文書
+         */
+        function createPrintDocument(pages, settings) {
+            const { fontSize, fontFamily, textColor, alignment, isBlackboardMode } = settings;
+            
+            // 文字揃えのCSSを生成
+            let alignmentStyle = '';
+            let textAlignStyle = '';
+            if (alignment === 'center') {
+                alignmentStyle = 'align-items: center;';
+                textAlignStyle = 'text-align: center;';
+            } else if (alignment === 'right') {
+                alignmentStyle = 'align-items: flex-end;';
+                textAlignStyle = 'text-align: end;';
+            } else {
+                alignmentStyle = 'align-items: flex-start;';
+                textAlignStyle = 'text-align: start;';
+            }
+            
+            // ページHTMLを生成
+            let pagesHTML = '';
+            pages.forEach((page, index) => {
+                pagesHTML += generatePageHTML(page, settings);
+                if (index < pages.length - 1) {
+                    pagesHTML += '<div class="page-break"></div>';
+                }
+            });
+            
+            // 完全な印刷用HTML
+            const printHTML = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- 印刷ドキュメント用のCSP設定 -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com data:;
+        img-src 'none';
+        script-src 'none';
+        connect-src 'none';
+        object-src 'none';
+        frame-src 'none';
+        base-uri 'self';
+        form-action 'none';
+    ">
+    
+    <title>印刷 - 縦書きメモ v1.8.0</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400&family=Noto+Serif+JP:wght@400;600&family=Klee+One:wght@400;600&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: ${fontFamily};
+            color: ${textColor};
+            background: white;
+        }
+        
+        /* 背景色印刷を強制 */
+        * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+        }
+        
+        .print-page {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: row-reverse;
+            ${alignmentStyle}
+            padding: 15mm;
+            box-sizing: border-box;
+        }
+        
+        .print-column {
+            writing-mode: vertical-rl;
+            text-orientation: upright;
+            margin-left: ${fontSize * 0.5}px;
+            font-size: ${fontSize}px;
+            line-height: 1;
+            letter-spacing: 0;
+            ${textAlignStyle}
+        }
+        
+        .print-column:last-child {
+            margin-left: 0;
+        }
+        
+        .char {
+            font-size: ${fontSize}px;
+            line-height: 1;
+            margin: 0;
+            padding: 0;
+            letter-spacing: 0;
+        }
+        
+        .page-break {
+            page-break-after: always;
+            clear: both;
+        }
+        
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 0;
+            }
+            
+            body {
+                margin: 0;
+                background: white;
+            }
+            
+            .print-page {
+                width: 210mm;
+                height: 297mm;
+                max-width: 210mm;
+                max-height: 297mm;
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+            
+            .char[style*="background-color"] {
+                position: relative;
+                z-index: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    ${pagesHTML}
+</body>
+</html>`;
+            
+            return printHTML;
+        }
+        
+        /**
+         * ページ数を見積もる
+         * @param {string} text - テキスト
+         * @param {number} fontSize - フォントサイズ
+         * @returns {number} 推定ページ数
+         */
+        function estimatePageCount(text, fontSize) {
+            if (!text) return 0;
+            
+            const fontSizeMM = fontSize * PRINT_CONSTANTS.PX_TO_MM;
+            const charsPerColumn = Math.floor(PRINT_CONSTANTS.PAGE_HEIGHT_MM / fontSizeMM);
+            const columnWidthMM = fontSizeMM * (1 + PRINT_CONSTANTS.COLUMN_SPACING_RATIO);
+            const columnsPerPage = Math.floor(PRINT_CONSTANTS.PAGE_WIDTH_MM / columnWidthMM);
+            
+            const lines = text.split('\n');
+            let totalColumns = 0;
+            
+            lines.forEach(line => {
+                if (line.length === 0) {
+                    totalColumns++; // 空行も1列として数える
+                } else {
+                    totalColumns += Math.ceil(line.length / charsPerColumn);
+                }
+            });
+            
+            return Math.ceil(totalColumns / columnsPerPage);
+        }
+        
+        /**
+         * メイン印刷関数
+         * 各種検証とユーザー確認を行う
+         */
+        function printWithMarkers() {
+            try {
+                const text = textInput.value;
+                if (!text) {
+                    alert('印刷するテキストがありません');
+                    return;
+                }
+                
+                const fontSize = parseInt(fontSizeSelector.value);
+                const textColor = textColorSelector.value;
+                const isBlackboardMode = blackboardToggle.checked;
+                
+                // ページ数チェック
+                const estimatedPages = estimatePageCount(text, fontSize);
+                if (estimatedPages > 30) {
+                    if (!confirm(`約${estimatedPages}ページになります。\n\n継続しますか？`)) {
+                        return;
+                    }
+                }
+
+                if (estimatedPages > PRINT_CONSTANTS.MAX_PAGES) {
+                    alert(`ページ数が多すぎます（${estimatedPages}ページ）。\n最大${PRINT_CONSTANTS.MAX_PAGES}ページまでとなります。`);
+                    return;
+                }
+
+                // 印刷制限の警告
+                if (fontSize >= 16) {
+                    if (!confirm(`簡易印刷機能のため一部の文字が印刷されない場合があります。\n正確な印刷には保存済みSVGファイルの直接印刷をご検討ください。\n\n継続しますか？`)) {
+                        return;
+                    }
+                }
+
+                // 黒板モード時の確認
+                if (isBlackboardMode) {
+                    if (!confirm('黒板モードは印刷時に白背景に変更されます。\n\n継続しますか？')) {
+                        return;
+                    }
+                }
+                
+                // 白文字の確認
+                if (textColor == '#FFFFFF') {
+                    if (!confirm('白文字は白い紙に印刷できません\n\n継続しますか？')) {
+                        return;
+                    }
+                }
+                
+                executePrint(text, fontSize);
+                
+            } catch (error) {
+                console.error('印刷エラー:', error);
+                alert('印刷処理中にエラーが発生しました。');
+            }
+        }
+        
+        /**
+         * 印刷実行関数
+         * @param {string} text - 印刷するテキスト
+         * @param {number} fontSize - フォントサイズ
+         */
+        function executePrint(text, fontSize) {
+            // 文字情報配列を生成
+            const charArray = parseTextWithMarkers(text, markerState.markers);
+            
+            // ページ分割
+            const pages = splitIntoPages(charArray, fontSize);
+            
+            // 印刷用HTML生成
+            const printHTML = createPrintDocument(pages, {
+                fontSize: fontSize,
+                fontFamily: fontSelector.value,
+                textColor: textColorSelector.value,
+                alignment: alignmentSelector.value,
+                isBlackboardMode: false // 印刷時は常に白背景
+            });
+            
+            // 非表示のiframeを作成
+            const printFrame = document.createElement('iframe');
+            printFrame.style.display = 'none';
+            document.body.appendChild(printFrame);
+            
+            const printDocument = printFrame.contentWindow.document;
+            
+            printDocument.open();
+            printDocument.write(printHTML);
+            printDocument.close();
+            
+            // フォントの読み込みを待ってから印刷
+            setTimeout(() => {
+                printFrame.contentWindow.focus();
+                printFrame.contentWindow.print();
+                
+                // 印刷ダイアログが閉じられた後にiframeを削除
+                setTimeout(() => {
+                    document.body.removeChild(printFrame);
+                }, 1000);
+            }, 500);
+        }
+        
+        printButton.addEventListener('click', printWithMarkers);
+
+        // === SVG読込機能 ===
+        loadButton.addEventListener('click', () => {
+            svgLoadInput.click();
+        });
+
+        svgLoadInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const svgContent = e.target.result;
+                try {
+                    const parser = new DOMParser();
+                    const svgDoc = parser.parseFromString(svgContent, "image/svg+xml");
+
+                    if (svgDoc.getElementsByTagName("parsererror").length > 0) throw new Error("SVGファイルの解析に失敗しました。");
+                    
+                    // テキストの読み込み
+                    const textElements = svgDoc.querySelectorAll('text');
+                    if (textElements.length === 0) throw new Error("SVG内にテキストが見つかりませんでした。");
+                    
+                    const lines = [];
+                    textElements.forEach(textEl => {
+                        lines.push({ x: parseFloat(textEl.getAttribute('x')), content: textEl.textContent || "" });
+                    });
+
+                    lines.sort((a, b) => b.x - a.x);
+                    const loadedText = lines.map(line => line.content).join('\n');
+                    
+                    textInput.value = loadedText;
+                    
+                    // 文字色の復元
+                    const textColorElement = svgDoc.querySelector('metadata textColor');
+                    if (textColorElement) {
+                        const savedColor = textColorElement.textContent;
+                        for (let i = 0; i < textColorSelector.options.length; i++) {
+                            if (textColorSelector.options[i].value === savedColor) {
+                                textColorSelector.selectedIndex = i;
+                                applyTextColor(savedColor);
+                                updateColorPreview();
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // マーカー情報の復元
+                    markerState.markers = [];
+                    markerState.markerId = 0;
+                    
+                    const markerElements = svgDoc.querySelectorAll('metadata markers marker');
+                    if (markerElements.length > 0) {
+                        markerElements.forEach(markerEl => {
+                            const marker = {
+                                id: parseInt(markerEl.getAttribute('id')),
+                                start: parseInt(markerEl.getAttribute('start')),
+                                end: parseInt(markerEl.getAttribute('end')),
+                                color: markerEl.getAttribute('color')
+                            };
+                            
+                            // テキスト範囲の検証
+                            if (marker.start >= 0 && marker.end <= loadedText.length && marker.start < marker.end) {
+                                marker.text = loadedText.substring(marker.start, marker.end);
+                                markerState.markers.push(marker);
+                                markerState.markerId = Math.max(markerState.markerId, marker.id);
+                            }
+                        });
+                        
+                        console.log(`${markerState.markers.length}個のマーカーを復元しました。(v${APP_INFO.version})`);
+                    }
+                    
+                    // 黒板モードの復元
+                    const blackboardModeElement = svgDoc.querySelector('metadata blackboardMode');
+                    if (blackboardModeElement && blackboardModeElement.textContent === 'true') {
+                        blackboardToggle.checked = true;
+                        document.body.classList.add('blackboard-mode');
+                    } else {
+                        blackboardToggle.checked = false;
+                        document.body.classList.remove('blackboard-mode');
+                    }
+                    
+                    updatePreviewWithMarkers();
+                    console.log(`SVGファイルを正常に読み込みました。(アプリバージョン: v${APP_INFO.version})`);
+
+                } catch (error) {
+                    console.error('SVG読込エラー:', error);
+                    showButtonError(loadButton, error.message);
+                } finally {
+                    svgLoadInput.value = '';
+                }
+            };
+            reader.onerror = () => {
+                console.error("ファイルの読み込みに失敗しました。");
+            };
+            reader.readAsText(file);
+        });
+
+        // === タッチ操作の最適化 ===
+        if ('ontouchstart' in window) {
+            textInput.style.touchAction = 'pan-y';
+            previewArea.style.touchAction = 'pan-y';
+        }
+
+        // === スクロール同期機能 ===
+        
+        /**
+         * スクロール位置を同期
+         * @param {HTMLElement} source - スクロール元
+         * @param {HTMLElement} target - スクロール先
+         * 
+         * AI-NOTE: 縦書きなので横スクロールのみを同期
+         */
+        function syncScroll(source, target) {
+            if (!scrollSyncState.isEnabled || !togglePreview.checked || scrollSyncState.temporaryDisabled) return;
+            
+            if (scrollSyncState.isSyncing) return;
+            
+            scrollSyncState.isSyncing = true;
+            
+            // 縦書きなので横スクロールのみを同期
+            const sourceScrollRatio = source.scrollLeft / (source.scrollWidth - source.clientWidth);
+            const targetScrollLeft = sourceScrollRatio * (target.scrollWidth - target.clientWidth);
+            
+            // スムーズなスクロールアニメーション
+            if (scrollSyncState.syncAnimationId) {
+                cancelAnimationFrame(scrollSyncState.syncAnimationId);
+            }
+            
+            scrollSyncState.syncAnimationId = requestAnimationFrame(() => {
+                target.scrollLeft = targetScrollLeft;
+                
+                setTimeout(() => {
+                    scrollSyncState.isSyncing = false;
+                }, 50);
+            });
+        }
+
+        // スクロールイベントのデバウンス処理
+        let scrollDebounceTimer = null;
+        function debounceScroll(func, wait) {
+            return function(event) {
+                if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
+                scrollDebounceTimer = setTimeout(() => {
+                    func(event);
+                }, wait);
+            };
+        }
+
+        const handleTextInputScroll = debounceScroll(() => {
+            syncScroll(textInput, previewArea);
+        }, 10);
+
+        const handlePreviewAreaScroll = debounceScroll(() => {
+            syncScroll(previewArea, textInput);
+        }, 10);
+
+        /**
+         * スクロールイベントリスナーの登録・解除を管理
+         */
+        function setupScrollSync() {
+            if (togglePreview.checked && scrollSyncState.isEnabled) {
+                textInput.addEventListener('scroll', handleTextInputScroll);
+                previewArea.addEventListener('scroll', handlePreviewAreaScroll);
+            } else {
+                textInput.removeEventListener('scroll', handleTextInputScroll);
+                previewArea.removeEventListener('scroll', handlePreviewAreaScroll);
+            }
+        }
+
+        setupScrollSync();
+
+        // スクロール同期トグルのイベントリスナー
+        scrollSyncToggle.addEventListener('change', (e) => {
+            scrollSyncState.isEnabled = e.target.checked;
+            setupScrollSync();
+            if (scrollSyncState.isEnabled && togglePreview.checked) {
+                // 同期を有効にしたら、現在のスクロール位置を同期
+                syncScroll(textInput, previewArea);
+            }
+        });
+          
+        // === PWA機能の実装 ===
+
+        // Service Worker登録
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/tategaki-memo-pwa/service-worker.js')
+                    .then((registration) => {
+                        console.log('Service Worker registered:', registration);
+                        
+                        // 更新チェック
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // 新しいバージョンが利用可能
+                                    showUpdateNotification();
+                                }
+                            });
+                        });
+                    })
+                    .catch((error) => {
+                        console.error('Service Worker registration failed:', error);
+                    });
+            });
+        }
+
+        // インストールプロンプト
+        let deferredPrompt;
+        const installButton = document.createElement('button');
+        installButton.innerHTML = 'アプリをインストール';
+        installButton.className = 'dynamic-button bg-green-700 text-white font-bold rounded-lg hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-transform transform hover:scale-105 touch-target hidden';
+        installButton.style.marginRight = '12px';
+
+        // インストールボタンを操作バーに追加
+        const operationBar = document.querySelector('.bg-gray-50.dynamic-p-3');
+        const buttonContainer = operationBar.querySelector('.flex.items-center.dynamic-gap-3.flex-wrap').lastElementChild;
+        buttonContainer.insertBefore(installButton, buttonContainer.firstChild);
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installButton.classList.remove('hidden');
+        });
+
+        installButton.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`User response to install prompt: ${outcome}`);
+            
+            if (outcome === 'accepted') {
+                installButton.classList.add('hidden');
+            }
+            deferredPrompt = null;
+        });
+
+        // インストール完了の検知
+        window.addEventListener('appinstalled', () => {
+            console.log('PWA was installed');
+            installButton.classList.add('hidden');
+        });
+
+        // 更新通知の表示
+        function showUpdateNotification() {
+            const notification = document.createElement('div');
+            notification.className = 'fixed bottom-4 right-4 bg-indigo-600 text-white p-4 rounded-lg shadow-lg z-50';
+            notification.innerHTML = `
+                <p class="mb-2">新しいバージョンが利用可能です</p>
+                <button onclick="updateServiceWorker()" class="bg-white text-indigo-600 px-3 py-1 rounded font-medium">
+                    更新する
+                </button>
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 10000);
+        }
+
+        // オンライン/オフライン状態の監視
+        function updateOnlineStatus() {
+            const statusIndicator = document.createElement('div');
+            statusIndicator.className = 'fixed top-4 right-4 px-3 py-1 rounded-full text-sm font-medium z-50';
+            
+            if (navigator.onLine) {
+                statusIndicator.classList.add('bg-green-100', 'text-green-800');
+                statusIndicator.textContent = 'オンライン';
+                setTimeout(() => statusIndicator.remove(), 3000);
+            } else {
+                statusIndicator.classList.add('bg-red-100', 'text-red-800');
+                statusIndicator.textContent = 'オフライン';
+            }
+            
+            if (!document.querySelector('.fixed.top-4.right-4')) {
+                document.body.appendChild(statusIndicator);
+            }
+        }
+
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+
+        // バックグラウンド同期の登録
+        async function registerBackgroundSync() {
+            if ('serviceWorker' in navigator && 'sync' in ServiceWorkerRegistration.prototype) {
+                try {
+                    const registration = await navigator.serviceWorker.ready;
+                    await registration.sync.register('sync-saved-files');
+                    console.log('Background sync registered');
+                } catch (error) {
+                    console.error('Background sync registration failed:', error);
+                }
+            }
+        }
+
+        // 共有ターゲットの処理
+        const urlParams = new URLSearchParams(window.location.search);
+        const sharedText = urlParams.get('text');
+        if (sharedText) {
+            textInput.value = sharedText;
+            updatePreviewWithMarkers();
+            // URLパラメータをクリア
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        // ページ離脱時の警告（未保存の変更がある場合）
+        let hasUnsavedChanges = false;
+        textInput.addEventListener('input', () => {
+            hasUnsavedChanges = true;
+        });
+
+        window.addEventListener('beforeunload', (e) => {
+            if (hasUnsavedChanges) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+
+        // 保存時に未保存フラグをクリア
+        const originalSaveButtonClick = saveButton.onclick;
+        saveButton.onclick = function() {
+            if (originalSaveButtonClick) originalSaveButtonClick.apply(this, arguments);
+            hasUnsavedChanges = false;
+        };
+
+        // PWAとしての起動を検知
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            console.log('Running as PWA');
+            document.body.classList.add('pwa-mode');
+        }
+
+        // 起動時のスプラッシュスクリーン効果
+        document.addEventListener('DOMContentLoaded', () => {
+            document.body.style.opacity = '0';
+            document.body.style.transition = 'opacity 0.3s ease-in';
+            setTimeout(() => {
+                document.body.style.opacity = '1';
+            }, 100);
+        });
+          
+        }); // DOMContentLoaded終了
+    </script>
+</body>
+</html>
