@@ -33,9 +33,13 @@ https://harmoniaepic.github.io/tategaki-memo-pwa/
 - **セキュリティ**: Content Security Policy (CSP) 実装
 - **PWA対応**: Service Workerによる完全オフライン動作
 
-## 📱 インストール
+## 📱 PWA インストール
 
 ブラウザでアクセス後、「アプリをインストール」ボタンをクリックするか、ブラウザのメニューから「アプリをインストール」を選択してください。
+
+- [Chrome でのインストール方法詳細](https://support.google.com/chrome/answer/9658361?hl=ja)
+- [Edge でのインストール方法詳細](https://learn.microsoft.com/ja-jp/microsoft-edge/progressive-web-apps/ux)
+- [MDN での PWA 解説](https://developer.mozilla.org/ja/docs/Web/Progressive_web_apps/Guides/Installing)
 
 ## 🔒 セキュリティ
 
